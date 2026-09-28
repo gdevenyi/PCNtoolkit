@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import copy
 import glob
-import importlib.metadata
 import json
 import os
 from typing import List, Optional, Tuple, Union
@@ -25,7 +24,7 @@ from pcntoolkit.regression_model.hbr import HBR  # noqa: F401 # type: ignore
 from pcntoolkit.regression_model.regression_model import RegressionModel
 from pcntoolkit.regression_model.test_model import TestModel  # noqa: F401 # type: ignore
 from pcntoolkit.util.evaluator import Evaluator
-from pcntoolkit.util.migration import check_forward_compatibility
+from pcntoolkit.util.migration import check_forward_compatibility, ptk_version
 from pcntoolkit.util.output import Errors, Messages, Output, Warnings
 from pcntoolkit.util.paths import ensure_dir_exists, get_default_save_dir, get_save_subdirs
 from pcntoolkit.util.plotter import plot_centiles, plot_qq
@@ -499,7 +498,7 @@ class NormativeModel:
 
         # Warn if model was saved with a newer pcntoolkit version.
         norm_version: str = metadata.get("ptk_version", "0.0.0")
-        current_version: str = importlib.metadata.version("pcntoolkit")
+        current_version: str = ptk_version()
         check_forward_compatibility(norm_version, current_version)
 
         savemodel = metadata["savemodel"]
@@ -1065,7 +1064,7 @@ class NormativeModel:
             "inscaler": self.inscaler,
             "outscaler": self.outscaler,
             "y_transform": self.y_transform,
-            "ptk_version": importlib.metadata.version("pcntoolkit"),
+            "ptk_version": ptk_version(),
         }
 
         if hasattr(self, "covariates"):
