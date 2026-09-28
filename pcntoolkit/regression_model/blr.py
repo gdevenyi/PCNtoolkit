@@ -618,7 +618,8 @@ class BLR(RegressionModel):
             self.D = X.shape[1]
 
         # Check if hyperparameters have changed
-        if (hyp == self.hyp).all() and hasattr(self, "N"):
+        # Saved models do not store Sigma_a, so recompute when it is missing.
+        if (hyp == self.hyp).all() and hasattr(self, "Sigma_a"):
             Output.print(Messages.BLR_HYPERPARAMETERS_HAVE_NOT_CHANGED)
             return
         else:
@@ -677,7 +678,7 @@ class BLR(RegressionModel):
         something_big: float = float(np.finfo(np.float64).max)
 
         # load posterior and prior covariance
-        if (hyp != self.hyp).any() or not hasattr(self, "A"):
+        if (hyp != self.hyp).any() or not hasattr(self, "Sigma_a"):
             try:
                 self.post(hyp, X, y, var_X)
             except ValueError as error:
@@ -781,7 +782,7 @@ class BLR(RegressionModel):
             )
 
         # load posterior and prior covariance
-        if (hyp != self.hyp).any() or not hasattr(self, "A"):
+        if (hyp != self.hyp).any() or not hasattr(self, "Sigma_a"):
             try:
                 self.post(hyp, X, y, var_X)
             except ValueError as error:
@@ -934,6 +935,8 @@ class BLR(RegressionModel):
             if key not in [
                 "warp", "lambda_n_vec", "beta",
                 "ys", "s2", "ptk_version",
+                # Diagonal D x D matrices that post() recomputes from hyp.
+                "Sigma_a", "Lambda_a",
             ]:
                 if isinstance(value, np.ndarray):
                     my_dict[key] = value.tolist()
