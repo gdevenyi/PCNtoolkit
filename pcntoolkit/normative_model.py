@@ -8,6 +8,7 @@ import copy
 import glob
 import json
 import os
+import uuid
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
@@ -515,8 +516,12 @@ class NormativeModel:
         my_dict = self.to_dict()
         self.set_ensure_save_dirs()
         Output.print(Messages.SAVING_MODEL, save_dir=savepath)
-        with open(os.path.join(modelpath, "normative_model.json"), "w", encoding="utf-8") as f:
+        # Parallel runner jobs all write this file; os.replace makes each write atomic.
+        model_json = os.path.join(modelpath, "normative_model.json")
+        tmp_json = f"{model_json}.{uuid.uuid4().hex}.tmp"
+        with open(tmp_json, "w", encoding="utf-8") as f:
             json.dump(my_dict, f, indent=4)
+        os.replace(tmp_json, model_json)
 
         for responsevar, model in self.regression_models.items():
             regmodel_path = os.path.join(modelpath, responsevar)

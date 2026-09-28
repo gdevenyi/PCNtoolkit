@@ -115,6 +115,7 @@ class TestNormativeModel:
             subject_ids=self.data["subject_ids"],
         )
         self.model.fit(data)
+        assert not list((self.save_dir / "model").glob("*.tmp"))
 
         moved_dir = self.output_dir / "moved"
         self.save_dir.rename(moved_dir)
