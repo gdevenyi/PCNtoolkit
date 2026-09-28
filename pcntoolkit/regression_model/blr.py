@@ -257,6 +257,10 @@ class BLR(RegressionModel):
                     )
             case _:
                 raise ValueError(Output.error(Errors.ERROR_UNKNOWN_CLASS, class_name=self.optimizer))
+        # The last objective call can be a finite-difference probe, so the
+        # stored posterior can belong to a different hyp. Recompute it at the
+        # final hyp. Use loglik(), not post(), so warped models warp y first.
+        self.loglik(out[0], *args)
         self.hyp = out[0]
         self.nlZ = out[1]
         _, self.beta, self.gamma = self.parse_hyps(self.hyp, Phi, Phi_var)

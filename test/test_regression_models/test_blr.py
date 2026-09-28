@@ -64,7 +64,13 @@ def test_loglik_after_to_and_from_dict(
     X, be, _, Y, _ = fitted_norm_blr_model.extract_data(resp_data)
     Phi, Phi_var = blr.Phi_Phi_var(X.values, be.values)
     # At the stored hyp, loglik must rebuild Sigma_a and Lambda_a (not in the file).
-    assert np.isfinite(blr.loglik(blr.hyp, Phi, Y.values, Phi_var))
+    loaded_nlZ = blr.loglik(blr.hyp, Phi, Y.values, Phi_var)
+    # The fitted model must hold the posterior of its final hyp (issue #550),
+    # so the loaded model gives the same value.
+    fitted_nlZ = fitted_blr_model.loglik(fitted_blr_model.hyp, Phi, Y.values, Phi_var)
+    np.testing.assert_allclose(loaded_nlZ, fitted_nlZ, rtol=1e-10)
+    np.testing.assert_allclose(blr.A, fitted_blr_model.A, rtol=1e-10)
+    np.testing.assert_allclose(blr.m, fitted_blr_model.m, rtol=1e-10)
 
 
 def test_fit(
