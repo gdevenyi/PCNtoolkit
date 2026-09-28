@@ -257,9 +257,10 @@ class BLR(RegressionModel):
                     )
             case _:
                 raise ValueError(Output.error(Errors.ERROR_UNKNOWN_CLASS, class_name=self.optimizer))
-        # The last objective call can be a finite-difference probe, so the
-        # stored posterior can belong to a different hyp. Recompute it at the
-        # final hyp. Use loglik(), not post(), so warped models warp y first.
+        # The optimizer's last evaluation might be a trial point next to the final
+        # hyp. Each evaluation overwrites the posterior, so it can belong to that trial 
+        # point, not to the final correct hyp. Here we recompute it at the final hyp.
+        # Bug fix for https://github.com/predictive-clinical-neuroscience/PCNtoolkit/issues/550
         self.loglik(out[0], *args)
         self.hyp = out[0]
         self.nlZ = out[1]
