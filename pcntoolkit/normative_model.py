@@ -536,7 +536,9 @@ class NormativeModel:
         Parameters
         ----------
         path : str
-            The path to the normative model.
+            The path to the normative model. A new model uses this path as its
+            ``save_dir``, so ``predict`` writes results inside it, even if the
+            folder was moved after it was saved.
         into : NormBase, optional
             The normative model to load the data into. If None, a new normative model is created.
             This is useful if you want to load a normative model into an existing normative model, for example in the runner.
@@ -554,7 +556,8 @@ class NormativeModel:
 
         savemodel = metadata["savemodel"]
         saveresults = metadata["saveresults"]
-        save_dir = metadata["save_dir"]
+        # Use the load folder, not the stored path, so a moved model still works.
+        save_dir = path
         inscaler = metadata["inscaler"]
         outscaler = metadata["outscaler"]
         saveplots = metadata["saveplots"]
