@@ -1,5 +1,6 @@
 from __future__ import print_function
 
+import json
 import os
 import re
 import shutil
@@ -558,3 +559,57 @@ def create_incremental_backup(filepath):
         return backup_path
     else:
         return None
+
+
+# Writes a list on one line with the fast C encoder.
+_encode_one_line = json.JSONEncoder().encode
+
+
+def to_json_with_one_line_lists(obj: object, indent: int = 4) -> str:
+    """
+    Convert ``obj`` to JSON text, with dicts indented and each list on one line.
+
+    The model settings stay readable, and the arrays of numbers (for example
+    the BLR ``A`` and ``m``) do not get one line per number. This makes a
+    BLR ``regression_model.json`` about 2 times smaller than with
+    ``json.dumps(obj, indent=4)``. All lists go through the C encoder, which
+    is fast on all supported Python versions; on Python 3.12, the C encoder
+    does not support ``indent``.
+
+    Parameters
+    ----------
+    obj : object
+        A JSON-serializable object, usually a dict from ``to_dict``.
+    indent : int, optional
+        Number of spaces for each dict level, by default 4.
+
+    Returns
+    -------
+    str
+        The JSON text. ``json.loads`` gives back an object equal to ``obj``.
+    """
+    arrays: list[str] = []
+
+    def to_placeholders(o: object) -> object:
+        if isinstance(o, dict):
+            return {k: to_placeholders(v) for k, v in o.items()}
+        if isinstance(o, (list, tuple)):
+            arrays.append(_encode_one_line(o))
+            return f"\x00{len(arrays) - 1}\x00"
+        return o
+
+    # json.dumps(indent=4) alone would put every number on its own line.
+    # So we first replace each list with its number in `arrays`, e.g.
+    # {"m": [0.1, 0.2]} becomes {"m": "\x000\x00"} (list 0), indent that,
+    # then swap "\x000\x00" back for "[0.1, 0.2]" on one line.
+    text = json.dumps(to_placeholders(obj), indent=indent)
+    parts = text.split('"\\u0000')
+    # Fall back to the standard json.dumps with indentation if some
+    # other text in obj also starts with "\x00" and looks like a list.
+    if len(parts) != len(arrays) + 1:
+        return json.dumps(obj, indent=indent)
+    out = [parts[0]]
+    for part in parts[1:]:
+        index, rest = part.split('\\u0000"', 1)
+        out.append(arrays[int(index)] + rest)
+    return "".join(out)
