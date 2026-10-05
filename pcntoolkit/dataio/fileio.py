@@ -598,12 +598,15 @@ def to_json_with_one_line_lists(obj: object, indent: int = 4) -> str:
             return f"\x00{len(arrays) - 1}\x00"
         return o
 
-    # Indent the small dict of settings, with each list as a placeholder
-    # string, then put back the lists. json.dumps writes "\x00" as "\u0000".
+    # json.dumps(indent=4) alone would put every number on its own line.
+    # So we first replace each list with its number in `arrays`, e.g.
+    # {"m": [0.1, 0.2]} becomes {"m": "\x000\x00"} (list 0), indent that,
+    # then swap "\x000\x00" back for "[0.1, 0.2]" on one line.
     text = json.dumps(to_placeholders(obj), indent=indent)
     parts = text.split('"\\u0000')
+    # Fall back to the standard json.dumps with indentation if some
+    # other text in obj also starts with "\x00" and looks like a list.
     if len(parts) != len(arrays) + 1:
-        # A string in obj contains "\x00"; do not risk a wrong replacement.
         return json.dumps(obj, indent=indent)
     out = [parts[0]]
     for part in parts[1:]:
