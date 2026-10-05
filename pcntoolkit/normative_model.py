@@ -15,6 +15,7 @@ import numpy as np
 import scipy.stats as stats
 import xarray as xr
 
+from pcntoolkit.dataio.fileio import to_json_with_one_line_lists
 from pcntoolkit.dataio.norm_data import NormData
 from pcntoolkit.math_functions.likelihood import ZeroInflatedNegativeBinomialLikelihood
 from pcntoolkit.math_functions.scaler import Scaler
@@ -29,57 +30,6 @@ from pcntoolkit.util.migration import check_forward_compatibility, ptk_version
 from pcntoolkit.util.output import Errors, Messages, Output, Warnings
 from pcntoolkit.util.paths import ensure_dir_exists, get_default_save_dir, get_save_subdirs
 from pcntoolkit.util.plotter import plot_centiles, plot_qq
-
-# Writes a list on one line with the fast C encoder.
-_encode_inline = json.JSONEncoder().encode
-
-
-def _dumps_arrays_inline(obj: object, indent: int = 4) -> str:
-    """
-    Serialize ``obj`` to JSON with indented dicts but each list on one line.
-
-    The model settings stay readable, and the arrays of numbers (for example
-    the BLR ``A`` and ``m``) do not get one line per number. This makes a
-    BLR ``regression_model.json`` about 2 times smaller than with
-    ``json.dumps(obj, indent=4)``. All lists go through the C encoder, which
-    is fast on all supported Python versions; on Python 3.12, the C encoder
-    does not support ``indent``.
-
-    Parameters
-    ----------
-    obj : object
-        A JSON-serializable object, usually a dict from ``to_dict``.
-    indent : int, optional
-        Number of spaces for each dict level, by default 4.
-
-    Returns
-    -------
-    str
-        The JSON text. ``json.loads`` gives back an object equal to ``obj``.
-    """
-    arrays: list[str] = []
-
-    def to_placeholders(o: object) -> object:
-        if isinstance(o, dict):
-            return {k: to_placeholders(v) for k, v in o.items()}
-        if isinstance(o, (list, tuple)):
-            arrays.append(_encode_inline(o))
-            return f"\x00{len(arrays) - 1}\x00"
-        return o
-
-    # Indent the small dict of settings, with each list as a placeholder
-    # string, then put back the lists. json.dumps writes "\x00" as "\u0000".
-    text = json.dumps(to_placeholders(obj), indent=indent)
-    parts = text.split('"\\u0000')
-    if len(parts) != len(arrays) + 1:
-        # A string in obj contains "\x00"; do not risk a wrong replacement.
-        return json.dumps(obj, indent=indent)
-    out = [parts[0]]
-    for part in parts[1:]:
-        index, rest = part.split('\\u0000"', 1)
-        out.append(arrays[int(index)] + rest)
-    return "".join(out)
-
 
 class NormativeModel:
     """
@@ -531,7 +481,7 @@ class NormativeModel:
             reg_model_dict["outscaler"] = self.outscalers[responsevar].to_dict()
             # Build the text first; json.dump(f) writes many small pieces and is slow.
             with open(os.path.join(regmodel_path, "regression_model.json"), "w", encoding="utf-8") as f:
-                f.write(_dumps_arrays_inline(reg_model_dict))
+                f.write(to_json_with_one_line_lists(reg_model_dict))
 
     @classmethod
     def load(cls, path: str, into: NormativeModel | None = None) -> NormativeModel:
