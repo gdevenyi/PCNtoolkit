@@ -1,0 +1,170 @@
+{
+    "model": {
+        "name": "y",
+        "type": "HBR",
+        "is_fitted": true,
+        "is_from_dict": false,
+        "transfered": false,
+        "ptk_version": "1.4.0",
+        "likelihood": {
+            "name": "Normal",
+            "mu": {
+                "name": "mu",
+                "_dims": null,
+                "mapping": "identity",
+                "mapping_params": [0, 1],
+                "slope": {
+                    "name": "slope_mu",
+                    "_dims": ["mu_covariates"],
+                    "mapping": "identity",
+                    "mapping_params": [0, 1],
+                    "dist_name": "Normal",
+                    "dist_params": [0, 2],
+                    "dims": ["mu_covariates"],
+                    "type": "Prior"
+                },
+                "intercept": {
+                    "name": "intercept_mu",
+                    "_dims": null,
+                    "mapping": "identity",
+                    "mapping_params": [0, 1],
+                    "mu": {
+                        "name": "mu_intercept_mu",
+                        "_dims": null,
+                        "mapping": "identity",
+                        "mapping_params": [0, 1],
+                        "dist_name": "Normal",
+                        "dist_params": [0, 2],
+                        "dims": null,
+                        "type": "Prior"
+                    },
+                    "sigma": {
+                        "name": "sigma_intercept_mu",
+                        "_dims": null,
+                        "mapping": "identity",
+                        "mapping_params": [0, 1],
+                        "dist_name": "HalfNormal",
+                        "dist_params": [1.0],
+                        "dims": null,
+                        "type": "Prior"
+                    },
+                    "dims": null,
+                    "type": "RandomPrior",
+                    "site_sigma": {
+                        "name": "site_sigma_intercept_mu",
+                        "_dims": null,
+                        "mapping": "identity",
+                        "mapping_params": [0, 1],
+                        "dist_name": "HalfNormal",
+                        "dist_params": [1.0],
+                        "dims": null,
+                        "type": "Prior"
+                    },
+                    "sex_sigma": {
+                        "name": "sex_sigma_intercept_mu",
+                        "_dims": null,
+                        "mapping": "identity",
+                        "mapping_params": [0, 1],
+                        "dist_name": "HalfNormal",
+                        "dist_params": [1.0],
+                        "dims": null,
+                        "type": "Prior"
+                    }
+                },
+                "basis_function": {
+                    "basis_column": 0,
+                    "is_fitted": true,
+                    "basis_name": "bspline",
+                    "min": -1.6521450655622814,
+                    "max": 1.7211459923882633,
+                    "compute_min": true,
+                    "compute_max": true,
+                    "degree": 3,
+                    "nknots": 4,
+                    "left_expand": 0.05,
+                    "right_expand": 0.05,
+                    "knot_method": "uniform",
+                    "include_linear": false,
+                    "knots": [-1.8208096184598086, -1.8208096184598086, -1.8208096184598086, -1.8208096184598086, -0.583936230544609, 0.6529371573705907, 1.8898105452857905, 1.8898105452857905, 1.8898105452857905, 1.8898105452857905],
+                    "basis_function": "BsplineBasisFunction"
+                },
+                "covariate_dims": ["mu_covariates_0", "mu_covariates_1", "mu_covariates_2", "mu_covariates_3", "mu_covariates_4", "mu_covariates_5", "mu_covariates_6"],
+                "one_dimensional": false,
+                "dims": null,
+                "type": "LinearPrior"
+            },
+            "sigma": {
+                "name": "sigma",
+                "_dims": null,
+                "mapping": "softplus",
+                "mapping_params": [0, 3],
+                "slope": {
+                    "name": "slope_sigma",
+                    "_dims": ["sigma_covariates"],
+                    "mapping": "identity",
+                    "mapping_params": [0, 1],
+                    "dist_name": "Normal",
+                    "dist_params": [0, 1],
+                    "dims": ["sigma_covariates"],
+                    "type": "Prior"
+                },
+                "intercept": {
+                    "name": "intercept_sigma",
+                    "_dims": null,
+                    "mapping": "identity",
+                    "mapping_params": [0, 1],
+                    "dist_name": "Normal",
+                    "dist_params": [1.0, 1.0],
+                    "dims": null,
+                    "type": "Prior"
+                },
+                "basis_function": {
+                    "basis_column": 0,
+                    "is_fitted": true,
+                    "basis_name": "linear",
+                    "min": -1.6521450655622814,
+                    "max": 1.7211459923882633,
+                    "compute_min": true,
+                    "compute_max": true,
+                    "basis_function": "LinearBasisFunction"
+                },
+                "covariate_dims": ["sigma_covariates_0", "sigma_covariates_1"],
+                "one_dimensional": false,
+                "dims": null,
+                "type": "LinearPrior"
+            }
+        },
+        "_name": "y",
+        "draws": 20,
+        "tune": 20,
+        "cores": 1,
+        "chains": 2,
+        "nuts_sampler": "pymc",
+        "init": "auto",
+        "progressbar": false,
+        "inference_method": "mcmc",
+        "vi_iterations": 30000,
+        "vi_draws": 1000,
+        "vi_kwargs": {},
+        "be_maps": {
+            "site": {
+                "s2": 0,
+                "s1": 1,
+                "s0": 2
+            },
+            "sex": {
+                "M": 0,
+                "F": 1
+            }
+        },
+        "idata_path": "hbr_Normal/model/y/idata.nc"
+    },
+    "outscaler": {
+        "scaler_type": "standardize",
+        "adjust_outliers": false,
+        "m": 3.1633347964958283,
+        "s": 0.9178626882076653,
+        "min": 0.7801345232502221,
+        "max": 6.065330153646824
+    }
+}

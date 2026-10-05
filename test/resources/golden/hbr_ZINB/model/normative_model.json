@@ -1,0 +1,247 @@
+{
+    "name": null,
+    "save_dir": "hbr_ZINB",
+    "savemodel": false,
+    "saveresults": false,
+    "saveplots": false,
+    "evaluate_model": false,
+    "template_regression_model": {
+        "name": "golden",
+        "type": "HBR",
+        "is_fitted": false,
+        "is_from_dict": false,
+        "transfered": false,
+        "ptk_version": "1.4.0",
+        "likelihood": {
+            "name": "ZINB",
+            "mu": {
+                "name": "mu",
+                "_dims": null,
+                "mapping": "softplus",
+                "mapping_params": [
+                    0,
+                    3
+                ],
+                "slope": {
+                    "name": "slope_mu",
+                    "_dims": [
+                        "covariates"
+                    ],
+                    "mapping": "identity",
+                    "mapping_params": [
+                        0,
+                        1
+                    ],
+                    "dist_name": "Normal",
+                    "dist_params": [
+                        0,
+                        1
+                    ],
+                    "dims": [
+                        "covariates"
+                    ],
+                    "type": "Prior"
+                },
+                "intercept": {
+                    "name": "intercept_mu",
+                    "_dims": null,
+                    "mapping": "identity",
+                    "mapping_params": [
+                        0,
+                        1
+                    ],
+                    "dist_name": "Normal",
+                    "dist_params": [
+                        1.0,
+                        1.0
+                    ],
+                    "dims": null,
+                    "type": "Prior"
+                },
+                "basis_function": {
+                    "basis_column": 0,
+                    "is_fitted": false,
+                    "basis_name": "linear",
+                    "min": null,
+                    "max": null,
+                    "compute_min": true,
+                    "compute_max": true,
+                    "basis_function": "LinearBasisFunction"
+                },
+                "dims": null,
+                "type": "LinearPrior"
+            },
+            "alpha": {
+                "name": "alpha",
+                "_dims": null,
+                "mapping": "softplus",
+                "mapping_params": [
+                    0,
+                    3
+                ],
+                "dist_name": "Normal",
+                "dist_params": [
+                    1.0,
+                    1.0
+                ],
+                "dims": null,
+                "type": "Prior"
+            },
+            "psi": {
+                "name": "psi",
+                "_dims": null,
+                "mapping": "sigmoid",
+                "mapping_params": [
+                    0,
+                    1
+                ],
+                "dist_name": "Normal",
+                "dist_params": [
+                    1.0,
+                    1.0
+                ],
+                "dims": null,
+                "type": "Prior"
+            }
+        },
+        "_name": "golden",
+        "draws": 20,
+        "tune": 20,
+        "cores": 1,
+        "chains": 2,
+        "nuts_sampler": "pymc",
+        "init": "auto",
+        "progressbar": false,
+        "inference_method": "mcmc",
+        "vi_iterations": 30000,
+        "vi_draws": 1000,
+        "vi_kwargs": {},
+        "be_maps": null
+    },
+    "inscalers": {
+        "age": {
+            "scaler_type": "standardize",
+            "adjust_outliers": false,
+            "m": 45.3923967109853,
+            "s": 22.53502413816207,
+            "min": 8.547693231307182,
+            "max": 84.83453181023089
+        },
+        "cov2": {
+            "scaler_type": "standardize",
+            "adjust_outliers": false,
+            "m": -0.04600178957366165,
+            "s": 1.0345229513191248,
+            "min": -2.715176499057861,
+            "max": 3.9422574158995696
+        }
+    },
+    "is_fitted": true,
+    "inscaler": "standardize",
+    "outscaler": "none",
+    "y_transform": null,
+    "ptk_version": "1.4.0",
+    "covariates": [
+        "age",
+        "cov2"
+    ],
+    "unique_batch_effects": {
+        "site": [
+            "s2",
+            "s1",
+            "s0"
+        ],
+        "sex": [
+            "F",
+            "M"
+        ]
+    },
+    "inverse_batch_effect_counts": {
+        "site": {
+            "0_70": "s2",
+            "1_67": "s1",
+            "2_63": "s0"
+        },
+        "sex": {
+            "0_107": "F",
+            "1_93": "M"
+        }
+    },
+    "batch_effects_maps": {
+        "site": {
+            "0_0": "s2",
+            "1_1": "s1",
+            "2_2": "s0"
+        },
+        "sex": {
+            "0_0": "F",
+            "1_1": "M"
+        }
+    },
+    "batch_effect_covariate_ranges": {
+        "site": {
+            "s2": {
+                "age": {
+                    "min": 9.484387200996016,
+                    "max": 84.68925797678374
+                },
+                "cov2": {
+                    "min": -2.2072914532228434,
+                    "max": 2.3770589987049457
+                }
+            },
+            "s1": {
+                "age": {
+                    "min": 8.639827257649255,
+                    "max": 84.83453181023089
+                },
+                "cov2": {
+                    "min": -2.114965571002918,
+                    "max": 2.3564191951785003
+                }
+            },
+            "s0": {
+                "age": {
+                    "min": 8.547693231307182,
+                    "max": 84.64986144555625
+                },
+                "cov2": {
+                    "min": -2.715176499057861,
+                    "max": 3.9422574158995696
+                }
+            }
+        },
+        "sex": {
+            "F": {
+                "age": {
+                    "min": 8.639827257649255,
+                    "max": 84.68925797678374
+                },
+                "cov2": {
+                    "min": -2.3947876113815414,
+                    "max": 2.3770589987049457
+                }
+            },
+            "M": {
+                "age": {
+                    "min": 8.547693231307182,
+                    "max": 84.83453181023089
+                },
+                "cov2": {
+                    "min": -2.715176499057861,
+                    "max": 3.9422574158995696
+                }
+            }
+        }
+    },
+    "covariate_ranges": {
+        "age": {
+            "min": 8.547693231307182,
+            "max": 84.83453181023089
+        },
+        "cov2": {
+            "min": -2.715176499057861,
+            "max": 3.9422574158995696
+        }
+    }
+}
