@@ -29,8 +29,24 @@ Three ways to use it (run from the repository root):
 
        python -m benchmarks.check_hbr_accuracy --size smoke
 
-``--size full`` (default) uses N=1000, R=1 and the library default sampling
-(tune=500, draws=1500, chains=4). The exit code is 0 if all checks pass.
+Reference problem (``--reference-model simple``, the default): synthetic
+data (``benchmarks.data.make_synthetic``, 1 response variable, 1 batch effect
+with 2 levels) and a Normal HBR model with 8 posterior parameters. The mean
+is a polynomial of degree 2 in age plus a random intercept per batch level
+(centered form); the SD is softplus of a straight line in age. ``--size
+full`` (default) uses N=1000, 4 chains x 3000 draws and tune=500 (about
+25 s). Unchanged code passed 29 of 30 runs; the 3-MCSE rule makes 16 tests
+per run, so about 1 run in 25 fails by chance. See ``benchmarks/README.md``.
+
+``--reference-model hard`` is the library default Normal model (B-spline
+mean and SD, non-centered random intercept, 21 parameters). It is not the
+reference because it often does not converge on unchanged code: one chain
+does not mix with the others (in some runs R-hat above 1.01 on most
+parameters, up to 1.06-1.10), and 8 of 14 measured runs failed. Use it
+only to study that problem.
+
+``--tune``, ``--draws`` and ``--chains`` change the sampling for an
+experiment. The exit code is 0 if all checks pass.
 """
 
 from __future__ import annotations
@@ -51,8 +67,18 @@ from benchmarks.compare import MCMC_MAX_RHAT, MCMC_N_MCSE, MCMC_Z_ATOL, compare_
 from benchmarks.data import make_dataset
 from benchmarks.env import git_info
 from benchmarks.timing import write_results
-from pcntoolkit import NormativeModel, NormData
+from pcntoolkit import (
+    HBR,
+    LinearBasisFunction,
+    NormalLikelihood,
+    NormativeModel,
+    NormData,
+    PolynomialBasisFunction,
+    make_prior,
+)
 from pcntoolkit.util.output import Output
+
+REFERENCE_MODELS = ("simple", "hard")
 
 PRESETS: dict[str, dict[str, Any]] = {
     "smoke": {
@@ -60,8 +86,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         "r": 1,
         "levels": 2,
         "sampling": {"tune": 100, "draws": 100, "chains": 2},
-        # 100 draws cannot reach R-hat <= 1.01, and the 3-MCSE rule failed
-        # about 1 run in 3; smoke only tests the plumbing.
+        # 100 draws are too few for reliable R-hat and MCSE values; smoke
+        # only tests the plumbing.
         "max_rhat": float("inf"),
         "z_atol": float("inf"),
         "n_mcse": float("inf"),
@@ -70,7 +96,9 @@ PRESETS: dict[str, dict[str, Any]] = {
         "n": 1000,
         "r": 1,
         "levels": 2,
-        "sampling": LIBRARY_DEFAULT_SAMPLING,
+        # Agreed sampling for the MCMC class. With the default reference
+        # model, unchanged code passed 29 of 30 runs; see benchmarks/README.md.
+        "sampling": {**LIBRARY_DEFAULT_SAMPLING, "draws": 3000, "chains": 4},
         "max_rhat": MCMC_MAX_RHAT,
         "z_atol": MCMC_Z_ATOL,
         "n_mcse": MCMC_N_MCSE,
@@ -78,8 +106,86 @@ PRESETS: dict[str, dict[str, Any]] = {
 }
 
 
+def make_simple_likelihood() -> NormalLikelihood:
+    """Normal likelihood of the default reference problem.
+
+    Returns
+    -------
+    NormalLikelihood
+        Mean: polynomial of degree 2 in the covariate plus a random intercept
+        per batch level. SD: softplus of a straight line in the covariate (no
+        basis functions, no random effects).
+    """
+    mu = make_prior(
+        linear=True,
+        slope=make_prior(dist_params=(0.0, 3.0)),
+        intercept=make_prior(
+            random=True,
+            # Each level has hundreds of subjects, so the offsets are well
+            # determined; the non-centered form then makes a narrow curved
+            # ridge between the group SD and the unit-scale offsets, with
+            # hundreds of divergences and R-hat up to 1.5 when tested.
+            centered=True,
+            mu=make_prior(dist_params=(0.0, 1.0)),
+            sigma=make_prior(dist_name="Gamma", dist_params=(1.0, 0.5)),
+        ),
+        # No constant column: a B-spline basis sums to 1, so its weights and
+        # the intercept can trade off against each other.
+        basis_function=PolynomialBasisFunction(degree=2),
+    )
+    sigma = make_prior(
+        linear=True,
+        slope=make_prior(dist_params=(0.0, 2.0)),
+        intercept=make_prior(dist_params=(0.0, 1.0)),
+        mapping="softplus",
+        mapping_params=(0.0, 2.0),
+        basis_function=LinearBasisFunction(),
+    )
+    return NormalLikelihood(mu, sigma)
+
+
+def make_reference_hbr(
+    reference_model: str,
+    likelihood: str,
+    tune: int,
+    draws: int,
+    chains: int,
+    sampler: str,
+) -> HBR:
+    """Build the HBR template of a reference problem.
+
+    Parameters
+    ----------
+    reference_model : str
+        One of ``REFERENCE_MODELS``.
+    likelihood : str
+        ``"normal"`` or ``"shashb"``; only used by ``"hard"``.
+    tune, draws, chains : int
+        Sampling settings.
+    sampler : str
+        NUTS sampler name.
+
+    Returns
+    -------
+    HBR
+        Unfitted template model.
+    """
+    if reference_model == "hard":
+        return make_hbr(likelihood, tune, draws, chains, sampler=sampler)
+    return HBR(
+        likelihood=make_simple_likelihood(),
+        tune=tune,
+        draws=draws,
+        chains=chains,
+        cores=chains,
+        nuts_sampler=sampler,
+        progressbar=False,
+    )
+
+
 def fit_model(
     train: NormData,
+    reference_model: str,
     likelihood: str,
     sampling: dict[str, int],
     sampler: str,
@@ -92,8 +198,10 @@ def fit_model(
     ----------
     train : NormData
         Training data (copied).
+    reference_model : str
+        One of ``REFERENCE_MODELS``.
     likelihood : str
-        ``"normal"`` or ``"shashb"``.
+        ``"normal"`` or ``"shashb"``; only used by ``"hard"``.
     sampling : dict[str, int]
         tune, draws, chains.
     sampler : str
@@ -108,9 +216,8 @@ def fit_model(
     tuple[NormativeModel, float]
         Fitted model and wall time in seconds of ``fit``.
     """
-    model = new_model(
-        make_hbr(likelihood, sampler=sampler, **sampling), save_dir, savemodel=save
-    )
+    hbr = make_reference_hbr(reference_model, likelihood, sampler=sampler, **sampling)
+    model = new_model(hbr, save_dir, savemodel=save)
     t0 = time.perf_counter()
     model.fit(copy.deepcopy(train))
     return model, time.perf_counter() - t0
@@ -153,12 +260,34 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--size", choices=sorted(PRESETS), default="full")
-    parser.add_argument("--likelihood", choices=("normal", "shashb"), default="normal")
+    parser.add_argument(
+        "--reference-model",
+        choices=REFERENCE_MODELS,
+        default="simple",
+        help="reference problem; 'hard' is known to mix poorly (see README)",
+    )
+    parser.add_argument(
+        "--likelihood",
+        choices=("normal", "shashb"),
+        default="normal",
+        help="likelihood of the 'hard' reference model",
+    )
     parser.add_argument("--sampler", default="nutpie")
     parser.add_argument(
         "--seed", type=int, default=0, help="seed of the synthetic data"
     )
     parser.add_argument("--levels", type=int, help="batch levels (default: preset)")
+    parser.add_argument(
+        "--tune", type=int, help="tuning steps per chain (default: preset)"
+    )
+    parser.add_argument(
+        "--draws", type=int, help="kept draws per chain (default: preset)"
+    )
+    parser.add_argument(
+        "--chains",
+        type=int,
+        help="number of chains, also the number of cores (default: preset)",
+    )
     parser.add_argument(
         "--max-rhat",
         type=float,
@@ -192,6 +321,10 @@ def main(argv: list[str] | None = None) -> int:
     pre = dict(PRESETS[args.size])
     if args.levels is not None:
         pre["levels"] = args.levels
+    pre["sampling"] = dict(pre["sampling"])
+    for key in ("tune", "draws", "chains"):
+        if getattr(args, key) is not None:
+            pre["sampling"][key] = getattr(args, key)
     if args.max_rhat is None:
         args.max_rhat = pre["max_rhat"]
     if args.z_atol is None:
@@ -205,6 +338,8 @@ def main(argv: list[str] | None = None) -> int:
         for name in ("pymc", "pytensor", "nutpie"):
             logging.getLogger(name).setLevel(logging.ERROR)
 
+    if args.reference_model != "hard" and args.likelihood != "normal":
+        parser.error("--likelihood only applies to --reference-model hard")
     train, test = make_dataset(
         "synthetic", pre["n"], pre["r"], pre["levels"], 1, args.seed
     )
@@ -214,15 +349,23 @@ def main(argv: list[str] | None = None) -> int:
     if args.save_reference:
         ref_dir = Path(args.save_reference)
         _, t = fit_model(
-            train, args.likelihood, sampling, args.sampler, str(ref_dir), save=True
+            train,
+            args.reference_model,
+            args.likelihood,
+            sampling,
+            args.sampler,
+            str(ref_dir),
+            save=True,
         )
         meta = {
             "git": git_info(),
+            "reference_model": args.reference_model,
             "likelihood": args.likelihood,
             "size": args.size,
             "seed": args.seed,
             "levels": pre["levels"],
             "sampler": args.sampler,
+            "sampling": sampling,
         }
         (ref_dir / "reference_meta.json").write_text(json.dumps(meta, indent=2))
         print(f"saved reference to {ref_dir} (fit {t:.1f} s)")
@@ -230,11 +373,32 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.reference:
         meta = json.loads((Path(args.reference) / "reference_meta.json").read_text())
-        made_with = (meta["likelihood"], meta["size"], meta["seed"], meta.get("levels"))
-        if made_with != (args.likelihood, args.size, args.seed, pre["levels"]):
+        made_with = (
+            # References saved before "reference_model" existed used "hard".
+            meta.get("reference_model", "hard"),
+            meta["likelihood"],
+            meta["size"],
+            meta["seed"],
+            meta.get("levels"),
+        )
+        this_run = (
+            args.reference_model,
+            args.likelihood,
+            args.size,
+            args.seed,
+            pre["levels"],
+        )
+        if made_with != this_run:
             print(
-                f"reference was made with {meta}; "
-                "pass the same --likelihood/--size/--seed/--levels"
+                f"reference was made with {meta}; pass the same "
+                "--reference-model/--likelihood/--size/--seed/--levels"
+            )
+            return 1
+        # References saved before "sampling" was recorded have no entry.
+        if meta.get("sampling", sampling) != sampling:
+            print(
+                f"reference was sampled with {meta['sampling']}, this run with "
+                f"{sampling}; pass the same --tune/--draws/--chains"
             )
             return 1
 
@@ -243,6 +407,7 @@ def main(argv: list[str] | None = None) -> int:
     ) as tmp:
         cand, t = fit_model(
             train,
+            args.reference_model,
             args.likelihood,
             sampling,
             args.sampler,
@@ -255,6 +420,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             ref, t = fit_model(
                 train,
+                args.reference_model,
                 args.likelihood,
                 sampling,
                 args.sampler,
@@ -283,6 +449,7 @@ def main(argv: list[str] | None = None) -> int:
         {
             "case": {
                 "check": "hbr_accuracy",
+                "reference_model": args.reference_model,
                 "likelihood": args.likelihood,
                 **sampling,
             },

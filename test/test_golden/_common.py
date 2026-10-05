@@ -5,9 +5,11 @@ this package both import from here. The generator builds seeded inputs, runs
 the functions below on them and saves inputs and outputs. The tests load the
 saved inputs, run the same functions again and compare with the saved outputs.
 
-The tests never draw new random numbers from a seed: they read every input
-from the ``.npz`` files. A change in NumPy's random stream therefore cannot
-break them.
+The tests never draw new random numbers from a seed: they read every stored
+input from the ``.npz`` files. The large shash inputs are too large to store;
+``shash_chunk_inputs`` builds them from a closed-form expression, not from a
+random generator. A change in NumPy's random stream therefore cannot break
+the tests.
 """
 
 from __future__ import annotations
@@ -64,7 +66,9 @@ SITES: list[str] = ["s0", "s1", "s2"]
 SEXES: list[str] = ["F", "M"]
 RESPONSE_VAR: str = "y"
 
-BLR_CONFIGS: tuple[str, ...] = ("plain", "warp", "hetero")
+# New configs go at the end: the generator draws their fixed hyperparameters
+# after those of the older configs, so the older golden values stay the same.
+BLR_CONFIGS: tuple[str, ...] = ("plain", "warp", "hetero", "hetero_be")
 # SHASHo and SHASHo2 are left out: their Likelihood classes are abstract and
 # cannot be instantiated, so no HBR model can use them (see README).
 HBR_LIKELIHOODS: tuple[str, ...] = ("Normal", "SHASHb", "beta", "ZINB")
@@ -74,6 +78,27 @@ HBR_LIKELIHOODS: tuple[str, ...] = ("Normal", "SHASHb", "beta", "ZINB")
 HBR_DRAWS: int = 20
 HBR_TUNE: int = 20
 HBR_CHAINS: int = 2
+
+# Saved models whose ``NormativeModel.predict`` output is pinned in
+# ``predict.npz``: golden file of their held-out data, key prefix of that
+# data, and key prefix of their per-call predictions in that file.
+PREDICT_CASES: dict[str, tuple[str, str, str]] = {
+    "blr_plain": ("blr", "", "pred_plain_"),
+    "hbr_Normal": ("hbr", "Normal_", "Normal_pred_"),
+}
+
+# Number of response variables in the multi-response golden models.
+N_MULTI_RESPONSE_VARS: int = 3
+
+# Chunk size that shash.P passes to dask, and the input shapes that cross it.
+SHASH_CHUNK: int = 1000
+SHASH_CHUNK_SHAPES: dict[str, tuple[int, int]] = {
+    "tall": (1500, 3),
+    "wide": (3, 1500),
+    "big": (1100, 1050),
+}
+# Shapes whose outputs are too large to store in full; only a summary is kept.
+SHASH_SUMMARY_SHAPES: tuple[str, ...] = ("big",)
 
 # DETERMINISTIC tolerance class.
 DET_RTOL: float = 1e-10
@@ -240,7 +265,13 @@ def make_dataset_arrays(
     }
 
 
-def to_normdata(name: str, X: np.ndarray, be: np.ndarray, Y: np.ndarray) -> NormData:
+def to_normdata(
+    name: str,
+    X: np.ndarray,
+    be: np.ndarray,
+    Y: np.ndarray,
+    response_vars: list[str] | None = None,
+) -> NormData:
     """Build a NormData object with the fixed golden column names.
 
     Parameters
@@ -253,17 +284,21 @@ def to_normdata(name: str, X: np.ndarray, be: np.ndarray, Y: np.ndarray) -> Norm
         Batch effects as strings, shape (n, 2).
     Y : np.ndarray
         Responses, shape (n, n_response_vars).
+    response_vars : list[str] | None, optional
+        Name of each column of ``Y``. Default: ``"y"`` for one column, else
+        ``"y0"``, ``"y1"``, ... in column order.
 
     Returns
     -------
     NormData
         The dataset.
     """
-    response_vars = (
-        [RESPONSE_VAR]
-        if Y.shape[1] == 1
-        else [f"{RESPONSE_VAR}{i}" for i in range(Y.shape[1])]
-    )
+    if response_vars is None:
+        response_vars = (
+            [RESPONSE_VAR]
+            if Y.shape[1] == 1
+            else [f"{RESPONSE_VAR}{i}" for i in range(Y.shape[1])]
+        )
     attrs = {
         "covariates": COVARIATES,
         "batch_effect_dims": BATCH_EFFECT_DIMS,
@@ -283,8 +318,9 @@ def blr_template(config: str) -> BLR:
     Parameters
     ----------
     config : str
-        ``"plain"``, ``"warp"`` (SinhArcsinh warp) or ``"hetero"``
-        (heteroskedastic noise).
+        ``"plain"``, ``"warp"`` (SinhArcsinh warp), ``"hetero"`` (noise
+        changes with age) or ``"hetero_be"`` (noise changes with age and
+        with the batch effects, with a separate age slope per batch level).
 
     Returns
     -------
@@ -311,6 +347,16 @@ def blr_template(config: str) -> BLR:
             name="hetero",
             fixed_effect=True,
             heteroskedastic=True,
+            basis_function_mean=bspline,
+            basis_function_var=LinearBasisFunction(basis_column=0),
+        )
+    if config == "hetero_be":
+        return BLR(
+            name="hetero_be",
+            fixed_effect=True,
+            heteroskedastic=True,
+            fixed_effect_var=True,
+            fixed_effect_var_slope=True,
             basis_function_mean=bspline,
             basis_function_var=LinearBasisFunction(basis_column=0),
         )
@@ -508,6 +554,97 @@ def predict_outputs(
     return out
 
 
+def by_name(data: NormData, var: str) -> dict[str, np.ndarray]:
+    """Split one prediction variable into one array per response variable.
+
+    The arrays are selected by response variable name, never by position, so
+    the result does not depend on the order of ``data.response_vars``.
+
+    Parameters
+    ----------
+    data : NormData
+        Data with ``var`` filled in.
+    var : str
+        Data variable with a ``response_vars`` dimension, e.g. ``"Z"``.
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        Response variable name to a copy of its values.
+    """
+    return {
+        str(rv): data[var].sel(response_vars=rv).values.copy()
+        for rv in data.response_vars.values
+    }
+
+
+def predict_outputs_by_name(
+    model: NormativeModel, data: NormData
+) -> dict[str, dict[str, np.ndarray]]:
+    """Run the four prediction hot spots and key the outputs by name.
+
+    Parameters
+    ----------
+    model : NormativeModel
+        A fitted model.
+    data : NormData
+        Held-out data. Modified in place.
+
+    Returns
+    -------
+    dict[str, dict[str, np.ndarray]]
+        ``Z``, ``centiles``, ``logp`` and ``yhat``, each as a map from
+        response variable name to its values.
+    """
+    predict_outputs(model, data)
+    return {
+        key: by_name(data, var)
+        for key, var in (
+            ("Z", "Z"),
+            ("centiles", "centiles"),
+            ("logp", "logp"),
+            ("yhat", "Yhat"),
+        )
+    }
+
+
+def full_predict_outputs(model: NormativeModel, data: NormData) -> dict[str, Any]:
+    """Run ``NormativeModel.predict`` as one call, with evaluation and saving.
+
+    The model writes its result files below its own ``save_dir``; give it a
+    temporary copy (see ``copy_model``). Plots are off: they are slow and are
+    not a numeric output.
+
+    Parameters
+    ----------
+    model : NormativeModel
+        A fitted model.
+    data : NormData
+        Held-out data. Modified in place.
+
+    Returns
+    -------
+    dict[str, Any]
+        ``Z``, ``centiles``, ``baseline_logp``, ``logp``, ``yhat`` and
+        ``statistics`` as plain arrays, ``statistic_names`` (strings) and
+        ``results_files`` (sorted file names written to ``results/``).
+    """
+    model.evaluate_model = True
+    model.saveresults = True
+    model.saveplots = False
+    model.predict(data)
+    results_dir = Path(model.save_dir) / "results"
+    out: dict[str, Any] = {
+        var.lower() if var == "Yhat" else var: data[var].values.copy()
+        for var in ("Z", "centiles", "baseline_logp", "logp", "Yhat", "statistics")
+    }
+    out["statistic_names"] = np.asarray(data["statistics"].statistic.values, dtype=str)
+    out["results_files"] = sorted(
+        f.name for f in results_dir.iterdir() if not f.name.endswith(".lock")
+    )
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # BLR at fixed hyperparameters (pure functions of the inputs)
 # --------------------------------------------------------------------------- #
@@ -681,6 +818,111 @@ def shash_outputs(inp: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         )
     ]
     out["shash_m1m2_scalar"] = np.array(scalar)
+    return out
+
+
+def _unit_sequence(n: int, step: float) -> np.ndarray:
+    """Return ``n`` well spread values in [0, 1) without a random generator.
+
+    Parameters
+    ----------
+    n : int
+        Number of values.
+    step : float
+        Irrational step; value i is the fractional part of ``i * step``.
+
+    Returns
+    -------
+    np.ndarray
+        Shape (n,).
+    """
+    return (np.arange(n) * step) % 1.0
+
+
+def shash_chunk_inputs(shape: tuple[int, int]) -> dict[str, np.ndarray]:
+    """Build large shash inputs from a closed-form expression.
+
+    The inputs are too large to store, so the generator and the tests both
+    build them here. No random generator is used, so a change in NumPy's
+    random stream cannot change them.
+
+    Parameters
+    ----------
+    shape : tuple[int, int]
+        Output shape.
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        ``q`` (P argument), ``p`` (Bessel order), ``eps`` and ``delta``
+        (SHASH parameters), all of shape ``shape``.
+    """
+    n = shape[0] * shape[1]
+    u = _unit_sequence(n, 0.6180339887498949).reshape(shape)
+    v = _unit_sequence(n, 0.4142135623730951).reshape(shape)
+    return {
+        "q": 0.2 + 3.8 * u,
+        "p": 0.1 + 6.4 * v,
+        "eps": -1.5 + 3.0 * v,
+        "delta": 0.4 + 2.1 * u,
+    }
+
+
+def summarise_large(a: np.ndarray) -> dict[str, np.ndarray]:
+    """Reduce a large 2-D output to a summary that still shows small changes.
+
+    A dask chunk is a rectangle, so a change inside any one chunk changes
+    most row sums or most column sums in the chunk's rows or columns.
+    Squares are summed so signed values cannot cancel.
+
+    Parameters
+    ----------
+    a : np.ndarray
+        2-D output.
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        ``row_sumsq``, ``col_sumsq`` and ``subset`` (1000 values at fixed,
+        evenly spaced flat positions).
+    """
+    flat_index = np.linspace(0, a.size - 1, 1000).astype(int)
+    return {
+        "row_sumsq": np.sum(a**2, axis=1),
+        "col_sumsq": np.sum(a**2, axis=0),
+        "subset": a.ravel()[flat_index],
+    }
+
+
+def shash_chunk_outputs() -> dict[str, np.ndarray]:
+    """Evaluate K, P and m1m2 on inputs that span more than one dask chunk.
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        ``chunk_<shape>_<function>`` (full output) for small shapes, and
+        ``chunk_<shape>_<function>_<summary>`` (see ``summarise_large``) for
+        ``SHASH_SUMMARY_SHAPES``. Functions: ``K``, ``P``, ``m1``, ``m2``.
+    """
+    out: dict[str, np.ndarray] = {}
+    for shape_name, shape in SHASH_CHUNK_SHAPES.items():
+        inp = shash_chunk_inputs(shape)
+        m1, m2 = m1m2(inp["eps"], inp["delta"])
+        values = {
+            # The chunks that P passes to K; the default "auto" gives one chunk.
+            "K": K(inp["p"], 0.25, chunks=(SHASH_CHUNK, SHASH_CHUNK)),
+            "P": P(inp["q"]),
+            "m1": m1,
+            "m2": m2,
+        }
+        for func, value in values.items():
+            arr = np.asarray(value)
+            key = f"chunk_{shape_name}_{func}"
+            if shape_name in SHASH_SUMMARY_SHAPES:
+                for summary, part in summarise_large(arr).items():
+                    out[f"{key}_{summary}"] = part
+            else:
+                out[key] = arr
     return out
 
 

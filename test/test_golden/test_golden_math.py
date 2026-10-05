@@ -10,14 +10,19 @@ import numpy as np
 import pytest
 
 from test.test_golden._common import (
+    SHASH_CHUNK,
+    SHASH_CHUNK_SHAPES,
+    SHASH_SUMMARY_SHAPES,
     assert_deterministic,
     likelihood_outputs,
     load_npz,
+    shash_chunk_outputs,
     shash_outputs,
     warp_outputs,
 )
 
 GOLDEN: dict[str, np.ndarray] = load_npz("math")
+CHUNK_GOLDEN: dict[str, np.ndarray] = load_npz("shash_chunks")
 
 LIKELIHOOD_KEYS: list[str] = sorted(
     k
@@ -35,6 +40,12 @@ WARP_KEYS: list[str] = sorted(
 def shash_actual() -> dict[str, np.ndarray]:
     """Recompute the shash outputs once per module."""
     return shash_outputs(GOLDEN)
+
+
+@pytest.fixture(scope="module")
+def shash_chunk_actual() -> dict[str, np.ndarray]:
+    """Recompute the multi-chunk shash outputs once per module."""
+    return shash_chunk_outputs()
 
 
 @pytest.fixture(scope="module")
@@ -108,3 +119,43 @@ def test_005_warp_should_matchGolden_when_givenFixedParameters(
     Assert: equal to the golden values (log-type warps cross 0 at x=1).
     """
     assert_deterministic(warp_actual[key], GOLDEN[key], near_zero=True, name=key)
+
+
+def test_025_shashChunkGolden_should_coverEveryShapeAndFunction_when_loaded() -> None:
+    """
+    Arrange: the golden multi-chunk shash file and the input shapes.
+    Act: list the pinned keys.
+    Assert: every shape spans more than one dask chunk in at least one
+        dimension (the "big" shape in both), and every shape has K, P, m1 and
+        m2 (in full, or as a summary), so no case is dropped silently.
+    """
+    for name, shape in SHASH_CHUNK_SHAPES.items():
+        assert max(shape) > SHASH_CHUNK, name
+        if name in SHASH_SUMMARY_SHAPES:
+            assert min(shape) > SHASH_CHUNK, name
+            suffixes = ("_row_sumsq", "_col_sumsq", "_subset")
+        else:
+            suffixes = ("",)
+        for func in ("K", "P", "m1", "m2"):
+            for suffix in suffixes:
+                assert f"chunk_{name}_{func}{suffix}" in CHUNK_GOLDEN
+
+
+@pytest.mark.parametrize("key", sorted(CHUNK_GOLDEN))
+def test_026_shashChunked_should_matchGolden_when_inputSpansSeveralChunks(
+    shash_chunk_actual: dict[str, np.ndarray], key: str
+) -> None:
+    """
+    Arrange: closed-form inputs of shape (1500, 3), (3, 1500) and
+        (1100, 1050), larger than the (1000, 1000) dask chunks of P.
+    Act: evaluate K (with P's chunks), P and m1m2.
+    Assert: equal to the golden values; for the largest shape, row and
+        column sums of squares and a fixed subset of values (m1 is signed
+        and ~0 when epsilon is ~0, so atol is on for it).
+    """
+    assert_deterministic(
+        shash_chunk_actual[key],
+        CHUNK_GOLDEN[key],
+        near_zero="_m1" in key,
+        name=key,
+    )

@@ -172,8 +172,9 @@ def test_018_blrSavedModel_should_reproducePredictions_when_loaded(
     saved_predictions: tuple[str, dict[str, np.ndarray]], key: str
 ) -> None:
     """
-    Arrange: a saved golden BLR model (plain, warp, heteroskedastic), copied
-        to a temporary directory.
+    Arrange: a saved golden BLR model (plain, warp, heteroskedastic, and
+        heteroskedastic with batch effects on the noise), copied to a
+        temporary directory.
     Act: compute_zscores, compute_centiles, compute_logp, compute_yhat on the
         held-out data.
     Assert: equal to the golden values (all signed, so atol is on).

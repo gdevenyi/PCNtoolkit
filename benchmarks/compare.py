@@ -21,7 +21,9 @@ MCMC
     number of draws). Check: ``|mean_a - mean_b| <= 3 * sqrt(mcse_a^2 +
     mcse_b^2)`` (same for SD with ``mcse_sd``), Z-scores within
     ``atol=0.05``, and R-hat (a convergence statistic; 1.0 means the chains
-    agree) ``<= 1.01`` in both runs.
+    agree) ``<= 1.01`` in both runs. The limits apply to fits with 4 chains
+    x 3000 draws (``check_hbr_accuracy --size full``); the measured rate of
+    false failures is in ``benchmarks/README.md``.
 
 Note: ZINB ``forward`` (Z-scores) draws random numbers, so it is only
 deterministic when you pass the same ``rng``.
@@ -305,6 +307,7 @@ def compare_mcmc(
 
     fails: list[dict[str, Any]] = []
     worst_ratio = 0.0
+    worst_where: tuple[str, str] | None = None
     for stat, mcse in (("mean", "mcse_mean"), ("sd", "mcse_sd")):
         diff = np.abs(sa[stat].to_numpy(float) - sb[stat].to_numpy(float))
         comb = np.sqrt(sa[mcse].to_numpy(float) ** 2 + sb[mcse].to_numpy(float) ** 2)
@@ -314,7 +317,9 @@ def compare_mcmc(
         )
         with np.errstate(divide="ignore", invalid="ignore"):
             ratio = np.where(constant, 0.0, diff / comb)
-        worst_ratio = max(worst_ratio, float(np.nanmax(ratio)) if ratio.size else 0.0)
+        if ratio.size and float(np.nanmax(ratio)) > worst_ratio:
+            worst_ratio = float(np.nanmax(ratio))
+            worst_where = (common[int(np.nanargmax(ratio))], stat)
         for idx in np.flatnonzero(diff > limit):
             fails.append(
                 {
@@ -349,6 +354,8 @@ def compare_mcmc(
         "n_params": len(common),
         "missing_params": missing[:20],
         "worst_diff_in_mcse": worst_ratio,
+        "worst_param": worst_where[0] if worst_where else None,
+        "worst_stat": worst_where[1] if worst_where else None,
         "moment_failures": fails[:20],
         "n_moment_failures": len(fails),
         "r_hat": rhat_fail,

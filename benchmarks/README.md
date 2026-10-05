@@ -90,7 +90,7 @@ estimated; heteroskedastic BLR fits with many batch levels dominate):
 | bench_blr        | 10 s (fcon: 45 s) | ~30 min | hours | many hours |
 | bench_hbr        | 25 s   | ~5 min   | ~1 h      | many hours |
 | bench_components | 10 s   | ~12 min  | ~30 min   | hours   |
-| check_hbr_accuracy | 25 s | full: 30 s | -       | -       |
+| check_hbr_accuracy | 15 s | full: 25 s | -       | -       |
 
 A heteroskedastic BLR fit with a batch effect on the noise has one
 hyperparameter per batch level; at 2 x 20 levels and N=5000 one fit takes
@@ -174,7 +174,8 @@ python -m benchmarks.check_hbr_accuracy --reference benchmarks/models/hbr_ref
 ```
 
 Without `--save-reference`/`--reference` it fits the current code twice and
-compares the two fits.
+compares the two fits. The fitted problem is fixed; see
+[The reference problem](#the-reference-problem-of-check_hbr_accuracy).
 
 ## Tolerance classes
 
@@ -196,27 +197,88 @@ the hyperparameter penalty) within `rtol=1e-8`, and
 Z-scores within 1e-6 (absolute).
 
 **MCMC** (`compare_mcmc`). For HBR fits. MCMC draws are random, so two fits
-never agree exactly. Each posterior mean (and SD) has a Monte Carlo standard
-error (MCSE): the noise of that estimate due to a finite number of draws.
+never agree exactly. Two terms:
+
+- MCSE (Monte Carlo standard error): the noise in a posterior mean (or SD)
+  that comes from using a finite number of draws. More draws give a smaller
+  MCSE.
+- R-hat: compares the chains of one fit. 1.0 means all chains sample the
+  same distribution; a larger value means at least one chain is somewhere
+  else (the sampler has not converged).
+
 Rule, for every parameter:
 
 - `|mean_a - mean_b| <= 3 * sqrt(mcse_mean_a^2 + mcse_mean_b^2)`, and the
   same for the SD with `mcse_sd`. Example: means 0.512 and 0.498 with MCSE
   0.004 each: the limit is 3 x 0.0057 = 0.017, the difference 0.014 passes.
 - Z-scores within 0.05 (absolute).
-- R-hat at most 1.01 in both fits. R-hat compares the chains of one fit; 1.0
-  means the chains agree, larger values mean the sampler has not converged.
+- R-hat at most 1.01 in both fits.
 
-The 3-MCSE rule is a statistical test, not a guarantee. The default Normal
-model has 21 parameters, so one fit pair makes 42 tests; even with identical
-code, about 1 run in 10 has at least one test outside 3 MCSE by chance. Also,
-the default Normal HBR model at N=1000 with library-default sampling does not
-always reach R-hat <= 1.01 (2 of 5 runs failed on unchanged code when this
-was written). If a check fails, run it again, and run it on `dev`, before you
-blame your change. `--max-rhat`, `--n-mcse` and `--z-atol` change the limits
-for an experiment; do not change them to make a PR pass.
+### The reference problem of `check_hbr_accuracy`
+
+The limits apply to one fixed problem (`--reference-model simple`, the
+default): synthetic data from `make_synthetic` (N=1000 train and test, 1
+response variable, 1 batch effect with 2 levels) and a Normal HBR model:
+
+- mean: polynomial of degree 2 in age, plus a random intercept per batch
+  level (centered form, `centered=True`);
+- SD: softplus of a straight line in age.
+
+This gives 8 posterior parameters. Sampling: 4 chains x 3000 draws,
+tune=500 (`--size full`, about 25 s on an 8-core laptop). It still runs
+the code that speed-up PRs change: the HBR fit, `forward` (Z-scores), a
+covariate basis with more than one column for the mean, and the batch-effect
+indexing of the random intercept.
+
+Measured on unchanged code (30 runs in a row, in two sets of 20 and 10):
+29 passed. The one failure was the SD of one mean slope at 3.5 MCSE. That is expected: 8 parameters x
+2 moments = 16 tests per run, and at 3 MCSE each test fails by chance about
+1 time in 370, so about 1 run in 25 fails. R-hat was at most 1.0015 and the
+largest Z difference was 0.005 in all 30 runs.
+
+The check finds real changes in fit B (3 runs each, all limits unchanged):
+
+| Change in fit B                                   | Result     | Why |
+|---------------------------------------------------|------------|-----|
+| Add 0.04 to every Z-score                         | 3/3 pass   | below the 0.05 limit |
+| Add 0.06 to every Z-score                         | 3/3 fail   | Z |
+| Prior SD of the SD slope 2.0 -> 1.0               | 3/3 pass   | mean moved less than 3 MCSE |
+| Prior SD of the SD slope 2.0 -> 0.5               | 3/3 fail   | mean moved 0.004-0.005 (6-9 MCSE, about 1%) |
+| Prior SD of the SD slope 2.0 -> 0.3               | 3/3 fail   | mean moved 0.012 (20 MCSE) |
+| Training Y x 1.005                                | 3/3 fail   | Z (difference 0.10) |
+| Training Y x 1.02                                 | 3/3 fail   | Z (difference 0.41) |
+
+So a change that moves one posterior mean by about 1% of its value, or
+moves Z-scores by more than 0.05, fails the check. Scaling only the
+training Y does not change the posterior, because the model standardizes Y
+before the fit; it changes the Z-scores of the (unscaled) test set.
+
+Why not the library default Normal model? `--reference-model hard` (B-spline
+mean and SD, non-centered random intercept, 21 parameters) often does not
+converge on unchanged code. In 14 runs of `--size full`, 8 failed, mostly on
+R-hat: in some runs one chain did not mix with the others (R-hat above
+1.01 on 18 or 19 of the 21 parameters, at most 1.06 to 1.10), and more
+tuning did not fix it (`--tune 2000`: 3 of 5 runs failed). That is a problem of the model, not of
+the check, and is reported separately. With the library default of 1500
+draws we estimated that this model fails 40-50% of runs: 2 R-hat failures
+in 5 runs, plus about 1 run in 10 for the 3-MCSE rule. That estimate was not
+measured again.
+
+Two other candidates did not pass:
+
+- The simple model with a non-centered random intercept: 0 of 3 runs passed
+  (R-hat up to 1.5, hundreds of divergences per chain). Each batch level has
+  about 500 subjects, so the offsets are well determined, and the
+  non-centered form then samples badly.
+- The same model on FCON1000 (1 response variable, batch effect sex only):
+  3 of 4 runs passed (R-hat 1.025 once). FCON1000 with site as a batch effect
+  has 23 levels and so many more parameters; with 3-MCSE tests on every
+  parameter it fails often by chance alone.
+
+If a check fails, run it again, and run it on `dev`, before you blame your
+change. `--max-rhat`, `--n-mcse` and `--z-atol` change the limits for an
+experiment; do not change them to make a PR pass.
 
 `check_hbr_accuracy --size smoke` uses 100 draws per chain. That is too few
-for R-hat, Z and the 3-MCSE rule to be reliable (the 3-MCSE rule failed
-about 1 run in 3 on unchanged code), so smoke reports all three but checks
-none of them. Its exit code only shows that the script runs.
+for R-hat, Z and the 3-MCSE rule to be reliable, so smoke reports all three
+but checks none of them. Its exit code only shows that the script runs.

@@ -212,6 +212,19 @@ def make_math(out_dir: Path) -> None:
     save_npz(out_dir, "math", disjoint_union(inp, out))
 
 
+def make_shash_chunks(out_dir: Path) -> None:
+    """Pin K, P and m1m2 on inputs that span more than one dask chunk.
+
+    The inputs are built by ``c.shash_chunk_inputs`` and are not stored.
+
+    Parameters
+    ----------
+    out_dir : Path
+        Output directory.
+    """
+    save_npz(out_dir, "shash_chunks", c.shash_chunk_outputs())
+
+
 def make_transforms(out_dir: Path) -> None:
     """Pin scalers and basis functions.
 
@@ -409,6 +422,120 @@ def make_hbr(out_dir: Path, work_dir: Path) -> dict[str, float]:
     return rhat
 
 
+def make_multi_response_arrays(
+    rng: np.random.Generator, n: int
+) -> dict[str, np.ndarray]:
+    """Draw one dataset with ``c.N_MULTI_RESPONSE_VARS`` response variables.
+
+    The columns have clearly different means, scales and age trends, so a
+    model or output that is matched to the wrong response variable gives
+    clearly wrong numbers.
+
+    Parameters
+    ----------
+    rng : np.random.Generator
+        Seeded generator.
+    n : int
+        Number of subjects.
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        ``X`` (n, 2), ``be`` (n, 2) strings and ``Y`` (n, 3).
+    """
+    ds = c.make_dataset_arrays(rng, n, "gaussian")
+    y, age = ds["Y"][:, 0], ds["X"][:, 0]
+    ds["Y"] = np.column_stack(
+        [
+            y,
+            10.0 - 2.0 * y + rng.normal(0.0, 0.3, n),
+            3.0 * y + 0.05 * age + rng.normal(0.0, 1.0, n),
+        ]
+    )
+    return ds
+
+
+def make_multi(out_dir: Path, work_dir: Path) -> None:
+    """Fit, save and pin BLR and HBR models with several response variables.
+
+    Every output is stored per response variable name
+    (``<key>__<response var>``), so the tests can match them by name.
+
+    Parameters
+    ----------
+    out_dir : Path
+        Output directory.
+    work_dir : Path
+        Scratch directory for files that ``fit`` writes.
+    """
+    rng = np.random.default_rng(child_seed("multi"))
+    train = make_multi_response_arrays(rng, c.N_TRAIN)
+    test = make_multi_response_arrays(rng, c.N_TEST)
+    arrays: dict[str, Any] = {f"train_{k}": v for k, v in train.items()} | {
+        f"test_{k}": v for k, v in test.items()
+    }
+    train_data = c.to_normdata("train", train["X"], train["be"], train["Y"])
+    arrays["response_vars"] = np.asarray(train_data.response_vars.values, dtype=str)
+
+    blr = c.make_normative_model(c.blr_template("plain"), str(work_dir / "blr_multi"))
+    blr.fit(train_data)
+    for rv, reg in blr.regression_models.items():
+        arrays[f"blr_fit_nlZ__{rv}"] = np.asarray(reg.nlZ)
+    save_model(blr, out_dir, "blr_multi")
+
+    template = c.HBR(
+        name="golden",
+        likelihood=c.hbr_likelihood("Normal"),
+        draws=c.HBR_DRAWS,
+        tune=c.HBR_TUNE,
+        chains=c.HBR_CHAINS,
+        cores=1,
+        nuts_sampler="pymc",
+        progressbar=False,
+    )
+    hbr = c.make_normative_model(template, str(work_dir / "hbr_multi"))
+    with seeded_pm_sample(child_seed("hbr_multi_sample")):
+        hbr.fit(c.to_normdata("train", train["X"], train["be"], train["Y"]))
+    save_model(hbr, out_dir, "hbr_multi")
+
+    # Predict from the saved copies, exactly as the tests do.
+    for kind in ("blr", "hbr"):
+        loaded = c.NormativeModel.load(str(out_dir / f"{kind}_multi"))
+        test_data = c.to_normdata("test", test["X"], test["be"], test["Y"])
+        for key, per_rv in c.predict_outputs_by_name(loaded, test_data).items():
+            for rv, v in per_rv.items():
+                arrays[f"{kind}_pred_{key}__{rv}"] = v
+    save_npz(out_dir, "multi", arrays)
+
+
+def make_predict(out_dir: Path, work_dir: Path) -> None:
+    """Pin ``NormativeModel.predict`` (one call) of two saved models.
+
+    Runs after ``make_blr`` and ``make_hbr``: it reads their held-out data
+    and saved models from ``out_dir``.
+
+    Parameters
+    ----------
+    out_dir : Path
+        Output directory.
+    work_dir : Path
+        Scratch directory for the model copies and their result files.
+    """
+    arrays: dict[str, Any] = {}
+    for name, (npz, prefix, _) in c.PREDICT_CASES.items():
+        golden = c.load_npz(npz, out_dir)
+        data = c.to_normdata(
+            "test",
+            golden[f"{prefix}test_X"],
+            golden[f"{prefix}test_be"],
+            golden[f"{prefix}test_Y"],
+        )
+        model = c.copy_model(name, work_dir / "predict", golden_dir=out_dir)
+        for k, v in c.full_predict_outputs(model, data).items():
+            arrays[f"{name}_{k}"] = np.asarray(v)
+    save_npz(out_dir, "predict", arrays)
+
+
 def git_commit() -> str:
     """Return the current commit, with ``-dirty`` if the tree has changes.
 
@@ -448,9 +575,12 @@ def main() -> None:
     make_math(out_dir)
     make_transforms(out_dir)
     make_normdata_eval(out_dir)
+    make_shash_chunks(out_dir)
     with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR", "/var/tmp")) as tmp:
         make_blr(out_dir, Path(tmp))
         rhat = make_hbr(out_dir, Path(tmp))
+        make_multi(out_dir, Path(tmp))
+        make_predict(out_dir, Path(tmp))
 
     provenance = {
         "commit": git_commit(),
