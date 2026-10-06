@@ -193,3 +193,39 @@ def test_005_split_should_keepOnlyItsOwnBatchEffects(
 
     assert first.unique_batch_effects["batch_effect_0"] == ["0"]
     assert second.unique_batch_effects["batch_effect_0"] == ["1"]
+
+
+def test_006_blrYhat_should_matchGenericYhat_when_transferred(
+    fitted_norm_blr_model: NormativeModel,
+    transfer_norm_data_from_arrays: NormData,
+) -> None:
+    """BLR.compute_yhat must equal the generic 200-backward-call version.
+
+    BLR computes the predictive mean and variance once; the generic
+    RegressionModel.compute_yhat calls backward() for each Z value. A
+    transferred model also applies the per-batch-effect corrections.
+
+    Parameters
+    ----------
+    fitted_norm_blr_model : NormativeModel
+        Pre-fitted BLR normative model.
+    transfer_norm_data_from_arrays : NormData
+        Transfer dataset
+    """
+    import copy
+
+    import numpy as np
+
+    from pcntoolkit.regression_model.regression_model import RegressionModel
+
+    transferred = fitted_norm_blr_model.transfer(transfer_norm_data_from_arrays)
+    data = copy.deepcopy(transfer_norm_data_from_arrays)
+    transferred.preprocess(data)
+    for rv in transferred.response_vars:
+        model = transferred[rv]
+        assert model.transfered
+        rv_data = data.sel(response_vars=rv)
+        X, be, _, _, _ = transferred.extract_data(rv_data)
+        expected = RegressionModel.compute_yhat(model, rv_data, rv, X, be)
+        actual = model.compute_yhat(rv_data, rv, X, be)
+        np.testing.assert_allclose(actual, expected, rtol=1e-10, atol=1e-12)
