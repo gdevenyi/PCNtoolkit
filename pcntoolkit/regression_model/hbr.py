@@ -26,10 +26,46 @@ from pcntoolkit.util.output import Errors, Output
 # at most one (n_observations, n_samples) array per likelihood parameter.
 _PARAM_CACHE: dict[str, Any] = {}
 
+# Number of (observation, sample) values per chunk in generic_MCMC_apply
+# (2**22 float64 values = 32 MiB per array).
+PREDICT_CHUNK_ELEMENTS = 2**22
+
 
 def clear_param_cache() -> None:
     """Free the cached per-subject parameter arrays of HBR models."""
     _PARAM_CACHE.clear()
+
+
+def _per_subject_array(values: xr.DataArray) -> xr.DataArray:
+    """Return a parameter as an (observations, sample) array.
+
+    A parameter without an observations dimension stays (1, sample), and is
+    not repeated for each observation. The memory layout of the posterior
+    predictive array is kept, so that later means are bit-identical.
+    """
+    if "observations" not in values.dims:
+        return xr.DataArray(values.values[None, :], dims=("observations", "sample"))
+    dims = ("observations", "sample")
+    return xr.DataArray(values.transpose(*dims).values, dims=dims)
+
+
+def _chunk_bounds(n_obs: int, n_samples: int) -> list[tuple[int, int]]:
+    """Split ``n_obs`` observations into chunks of about PREDICT_CHUNK_ELEMENTS values.
+
+    No chunk has exactly one row when ``n_obs > 1``: numpy sums a 1-row slice
+    in another order, so its mean could differ in the last bit.
+    """
+    rows = max(2, PREDICT_CHUNK_ELEMENTS // max(n_samples, 1))
+    bounds = [[lo, min(lo + rows, n_obs)] for lo in range(0, n_obs, rows)]
+    if len(bounds) > 1 and bounds[-1][1] - bounds[-1][0] == 1:
+        last = bounds.pop()
+        bounds[-1][1] = last[1]
+    return [(lo, hi) for lo, hi in bounds]
+
+
+def _per_observation(value: Any, n_obs: int) -> bool:
+    """True if ``value`` is an array with one row per observation."""
+    return isinstance(value, np.ndarray) and value.ndim > 0 and len(value) == n_obs
 
 
 def _fingerprint(a: np.ndarray) -> tuple:
@@ -310,9 +346,26 @@ class HBR(RegressionModel):
         if not self.is_fitted:
             raise ValueError(Output.error(Errors.HBR_MODEL_NOT_FITTED))
 
-        array_of_vars = self.per_subject_params(X, be, Y)
-        result = xr.apply_ufunc(fn, *array_of_vars, kwargs=kwargs).mean(dim="sample")
-        return result
+        params = [a.values for a in self.per_subject_params(X, be, Y)]
+        n_obs = X.shape[0]
+        n_samples = max(a.shape[1] for a in params)
+        means = []
+        # fn and the mean run on chunks of observations, so the temporary
+        # (observations, sample) arrays of fn are at most one chunk large.
+        # fn is elementwise per observation, so the result is bit-identical.
+        for lo, hi in _chunk_bounds(n_obs, n_samples):
+            args = [a if a.shape[0] == 1 else a[lo:hi] for a in params]
+            chunk_kwargs = {
+                k: v[lo:hi] if _per_observation(v, n_obs) else v
+                for k, v in kwargs.items()
+            }
+            out = fn(*args, **chunk_kwargs)
+            if out.shape != (hi - lo, n_samples):
+                # For example yhat when all parameters are scalar per sample.
+                out = np.broadcast_to(out, (hi - lo, n_samples))
+            mean = xr.DataArray(out, dims=("observations", "sample")).mean(dim="sample")
+            means.append(np.asarray(mean.values))
+        return xr.DataArray(np.concatenate(means), dims=("observations",))
 
     def per_subject_params(self, X: xr.DataArray, be: xr.DataArray, Y: xr.DataArray) -> list[xr.DataArray]:
         """Return the likelihood parameters per subject and posterior sample.
@@ -337,7 +390,9 @@ class HBR(RegressionModel):
         Returns
         -------
         list[xr.DataArray]
-            One (observations, sample) array per likelihood parameter.
+            One (observations, sample) array per likelihood parameter. A
+            parameter that does not vary over observations (for example a
+            fixed epsilon) has shape (1, sample).
         """
         key = (_fingerprint(X.values), _fingerprint(be.values))
         cache = _PARAM_CACHE
@@ -371,8 +426,7 @@ class HBR(RegressionModel):
             var_names=var_names,
         )
 
-        n_observations = model.dim_lengths["observations"].eval().item()
-        array_of_vars = list(map(lambda x: self.extract_and_reshape(post_pred, n_observations, x), var_names))
+        array_of_vars = [_per_subject_array(post_pred[name]) for name in var_names]
         for arr in array_of_vars:
             arr.values.flags.writeable = False
         cache.update(owner=weakref.ref(self), idata=self.idata, key=key, arrays=array_of_vars)
