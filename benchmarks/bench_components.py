@@ -4,9 +4,10 @@ Groups (``--groups``; default all):
 
 shash
     ``shash.K``, ``P``, ``m1m2``, ``S``, ``S_inv`` on (N, S) arrays, where S
-    is the number of posterior samples. ``K``/``P``/``m1m2`` return lazy dask
-    arrays; the timed call converts the result with ``np.asarray``, so the
-    time includes the real computation.
+    is the number of posterior samples. ``K``/``P``/``m1m2`` get distinct
+    values (delta linear in the covariates, the slowest case);
+    ``m1m2_fixed`` gets one delta per sample, the same for all observations
+    (delta not linear and without random effects).
 likelihood
     numpy ``forward`` (Y to Z) and ``backward`` (Z to Y) of the Normal,
     SHASHb, SHASHo, SHASHo2, Beta and ZINB likelihoods on (N, S) parameter
@@ -256,6 +257,12 @@ def bench_shash(b: Bench, n: int, s: int, rng: np.random.Generator) -> None:
     )
     b.add("shash.P", lambda: _force(shash.P(1.0 / delta)), **shape)
     b.add("shash.m1m2", lambda: [_force(v) for v in shash.m1m2(eps, delta)], **shape)
+    fixed = np.broadcast_to(delta[:1], delta.shape).copy()
+    b.add(
+        "shash.m1m2_fixed",
+        lambda: [_force(v) for v in shash.m1m2(eps, fixed)],
+        **shape,
+    )
     b.add("shash.S", lambda: shash.S(x, eps, delta), **shape)
     b.add("shash.S_inv", lambda: shash.S_inv(x, eps, delta), **shape)
 
