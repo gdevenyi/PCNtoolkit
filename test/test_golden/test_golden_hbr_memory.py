@@ -73,18 +73,21 @@ def _old_apply(hbr, X, be, Y, fn, kwargs) -> np.ndarray:
 
 
 def _calls(hbr, Y) -> dict[str, tuple]:
-    """fn and kwargs of forward, backward (Z = 1.5) and yhat."""
+    """fn and a function that makes new kwargs, for forward, backward and yhat.
+
+    ZINB forward draws random numbers; each call gets a new generator with the
+    same seed, so two calls can be compared bit for bit.
+    """
+    y = Y.values[:, None]
     z = np.full((Y.shape[0], 1), 1.5)
-    if isinstance(hbr.likelihood, ZINBLikelihood):
-        z = np.full((Y.shape[0], 1), -0.5)  # forward of ZINB uses an unseeded rng
     return {
-        "backward": (hbr.likelihood.backward, {"Z": z}),
-        "yhat": (hbr.likelihood.yhat, {}),
-    } | (
-        {}
-        if isinstance(hbr.likelihood, ZINBLikelihood)
-        else {"forward": (hbr.likelihood.forward, {"Y": Y.values[:, None]})}
-    )
+        "forward": (
+            hbr.likelihood.forward,
+            lambda: {"Y": y, "rng": np.random.default_rng(0)},
+        ),
+        "backward": (hbr.likelihood.backward, lambda: {"Z": z}),
+        "yhat": (hbr.likelihood.yhat, dict),
+    }
 
 
 def test_044_chunkBounds_should_coverAllRowsWithoutOneRowChunks_when_split() -> None:
@@ -123,10 +126,10 @@ def test_045_chunkedApply_should_notChangeAnyBit_when_chunkSizeChanges(
     n_samples = max(a.shape[1] for a in hbr.per_subject_params(X, be, Y))
     for call, (fn, kwargs) in _calls(hbr, Y).items():
         monkeypatch.setattr(hbr_module, "PREDICT_CHUNK_ELEMENTS", 2**40)
-        whole = hbr.generic_MCMC_apply(X, be, Y, fn, kwargs).values
+        whole = hbr.generic_MCMC_apply(X, be, Y, fn, kwargs()).values
         elements = chunk_rows * n_samples
         monkeypatch.setattr(hbr_module, "PREDICT_CHUNK_ELEMENTS", elements)
-        chunked = hbr.generic_MCMC_apply(X, be, Y, fn, kwargs).values
+        chunked = hbr.generic_MCMC_apply(X, be, Y, fn, kwargs()).values
         np.testing.assert_array_equal(chunked, whole, call)
 
 
@@ -147,8 +150,8 @@ def test_048_chunkedApply_should_matchOldPath_when_defaultChunks(
     """
     hbr, X, be, Y = _inputs(name, tmp_path)
     for call, (fn, kwargs) in _calls(hbr, Y).items():
-        new = hbr.generic_MCMC_apply(X, be, Y, fn, kwargs).values
-        old = _old_apply(hbr, X, be, Y, fn, kwargs)
+        new = hbr.generic_MCMC_apply(X, be, Y, fn, kwargs()).values
+        old = _old_apply(hbr, X, be, Y, fn, kwargs())
         assert_deterministic(new, old, name=f"{name} {call}")
         if (name, call) not in NOT_BIT_IDENTICAL:
             np.testing.assert_array_equal(new, old, f"{name} {call}")
@@ -190,15 +193,25 @@ def test_047_zinbBackward_should_matchRepeatedParams_when_paramsAreOneRow() -> N
 
 
 def test_049_predict_should_keepOutputOrder_when_cacheIsFreedBeforeLogp(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """
-    Arrange: a saved HBR model and its test data.
+    Arrange: a saved HBR model and its test data; spies on the logp steps.
     Act: NormativeModel.predict (Yhat is computed before logp, then moved).
-    Assert: the outputs are in the old order, and the cache is empty.
+    Assert: the cache is empty when the logp steps start, the outputs are in
+        the old order, and the cache is empty at the end.
     """
     model: NormativeModel = copy_model("hbr_Normal", tmp_path / "Normal")
     model.saveresults = model.saveplots = model.evaluate_model = False
+    started = []
+    for step in ("compute_baseline_logp", "compute_logp"):
+        real = getattr(model, step)
+
+        def spy(data, real=real):
+            started.append(hbr_module._PARAM_CACHE == {})
+            return real(data)
+
+        monkeypatch.setattr(model, step, spy)
     data = to_normdata(
         "test",
         GOLDEN["Normal_test_X"],
@@ -206,6 +219,26 @@ def test_049_predict_should_keepOutputOrder_when_cacheIsFreedBeforeLogp(
         GOLDEN["Normal_test_Y"],
     )
     model.predict(data)
+    assert started == [True, True]
     outputs = ["Z", "centiles", "baseline_logp", "logp", "Yhat"]
     assert [v for v in data.data_vars if v in outputs] == outputs
     assert hbr_module._PARAM_CACHE == {}
+
+
+def test_050_chunkedApply_should_giveOneValuePerObservation_when_allParamsPerSample(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    Arrange: the Normal model with mu and sigma replaced by (1, S) arrays (as
+        for a model without covariate or batch terms); chunks of 7 rows.
+    Act: generic_MCMC_apply for yhat (returns (1, S) per chunk) and backward.
+    Assert: one value per observation, equal to the old repeat path.
+    """
+    hbr, X, be, Y = _inputs("Normal", tmp_path)
+    one_row = [a[:1].copy() for a in hbr.per_subject_params(X, be, Y)]
+    monkeypatch.setattr(hbr, "per_subject_params", lambda *args: one_row)
+    monkeypatch.setattr(hbr_module, "PREDICT_CHUNK_ELEMENTS", 7 * one_row[0].shape[1])
+    for call, (fn, kwargs) in _calls(hbr, Y).items():
+        new = hbr.generic_MCMC_apply(X, be, Y, fn, kwargs()).values
+        assert new.shape == (X.shape[0],), call
+        assert_deterministic(new, _old_apply(hbr, X, be, Y, fn, kwargs()), name=call)
