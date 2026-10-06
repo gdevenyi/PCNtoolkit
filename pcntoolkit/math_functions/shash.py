@@ -126,6 +126,8 @@ def _dedupe(
     """
     q = np.asarray(q, dtype=np.float64)
     shape = q.shape
+    if q.size == 0:
+        return q, lambda r: r
     # 1. q is constant along an axis: keep one slice, then copy it back.
     for axis in range(q.ndim):
         first = np.take(q, [0], axis=axis)

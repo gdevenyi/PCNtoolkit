@@ -34,6 +34,8 @@ def _delta(case: str) -> np.ndarray:
         return rng.uniform(0.5, 2, (N, S))
     if case == "special":
         return np.array([[np.nan, 1.0, np.inf], [1.0, 0.7, np.nan]])
+    if case == "empty":
+        return np.empty((0, S))
     if case == "3d":
         return np.repeat(rng.uniform(0.5, 2, (4, 1, 6)), 3, axis=1)
     raise ValueError(case)
@@ -43,7 +45,7 @@ def _direct_P(q: np.ndarray) -> np.ndarray:
     return (spp.kv((q + 1) / 2, 1 / 4) + spp.kv((q - 1) / 2, 1 / 4)) * FRAC
 
 
-CASES = ["fixed", "random_effect", "linear", "special", "3d"]
+CASES = ["fixed", "random_effect", "linear", "special", "empty", "3d"]
 
 
 @pytest.mark.parametrize("case", CASES)
@@ -51,7 +53,7 @@ def test_shashHelpers_should_beBitIdentical_when_inputHasRepeatedValues(
     case: str,
 ) -> None:
     """
-    Arrange: delta with fixed, per-level, distinct or special values.
+    Arrange: delta with fixed, per-level, distinct, special or no values.
     Act: K, P and m1m2 with deduplication.
     Assert: the results equal a direct computation on every element.
     """
