@@ -196,11 +196,17 @@ class NormativeModel:
         self.set_ensure_save_dirs()
         self.compute_zscores(data)
         self.compute_centiles(data, recompute=True)
+        # Yhat still uses the HBR per-subject parameters cached for this data;
+        # free them before the logp steps, which do not use them. This lowers
+        # the peak memory. Yhat is put back last, so the order of the data
+        # variables does not change.
+        self.compute_yhat(data)
+        clear_param_cache()
+        yhat = data["Yhat"]
+        del data["Yhat"]
         self.compute_baseline_logp(data)
         self.compute_logp(data)
-        self.compute_yhat(data)
-        # Free the HBR per-subject parameters cached for this data.
-        clear_param_cache()
+        data["Yhat"] = yhat
         if self.evaluate_model:
             self.evaluate(data)
         if self.saveresults:
