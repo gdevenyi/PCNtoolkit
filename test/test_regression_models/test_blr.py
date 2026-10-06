@@ -7,6 +7,7 @@ from pcntoolkit.dataio.norm_data import NormData
 from pcntoolkit.math_functions.basis_function import (
     BsplineBasisFunction,
 )
+from pcntoolkit.normative_model import NormativeModel
 from pcntoolkit.regression_model.blr import (
     BLR,
     create_design_matrix,
@@ -15,7 +16,6 @@ from pcntoolkit.util.migration import registry
 from test.fixtures.blr_model_fixtures import *
 from test.fixtures.norm_data_fixtures import *
 from test.fixtures.path_fixtures import *
-from pcntoolkit.normative_model import NormativeModel
 
 
 @pytest.mark.parametrize("n_iter,tol,ard", [(100, 1e-3, False), (1, 1e-6, True)])
@@ -244,3 +244,41 @@ def test_migration_loads_model_when_slopes_are_off() -> None:
     # Pretend the model was saved with v1.3.0 so that the migration logic for pre-1.4.0 
     # models is triggered.
     registry.migrate("BLR", d, version="1.3.0")
+
+
+def test_fit_should_useOneBlasThread_when_fitting(
+    blr_model_factory,
+    norm_data_from_arrays: NormData,
+    fitted_norm_blr_model: NormativeModel,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    BLR.fit runs the optimiser with 1 BLAS/OpenMP thread and gives the
+    caller's thread settings back afterwards.
+    """
+    from threadpoolctl import threadpool_info
+
+    import pcntoolkit.regression_model.blr as blr_module
+
+    def thread_counts() -> list[int]:
+        return [lib["num_threads"] for lib in threadpool_info()]
+
+    seen: list[list[int]] = []
+    real_loglik = blr_module.BLR.penalized_loglik
+
+    def recording_loglik(self, *args, **kwargs):
+        seen.append(thread_counts())
+        return real_loglik(self, *args, **kwargs)
+
+    monkeypatch.setattr(blr_module.BLR, "penalized_loglik", recording_loglik)
+    blr_model = blr_model_factory()
+    blr_model.optimizer = "l-bfgs-b"
+    response_var = norm_data_from_arrays.response_vars[0]
+    X, be, be_maps, Y, _ = fitted_norm_blr_model.extract_data(
+        norm_data_from_arrays.sel(response_vars=response_var)
+    )
+    before = thread_counts()
+    blr_model.fit(X, be, be_maps, Y)
+    assert seen, "the optimiser did not call penalized_loglik"
+    assert all(n == 1 for counts in seen for n in counts)
+    assert thread_counts() == before
