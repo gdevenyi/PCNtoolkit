@@ -1,0 +1,93 @@
+{
+    "model": {
+        "name": "y",
+        "type": "HBR",
+        "is_fitted": true,
+        "is_from_dict": false,
+        "transfered": false,
+        "ptk_version": "1.4.0",
+        "likelihood": {
+            "name": "beta",
+            "alpha": {
+                "name": "alpha",
+                "_dims": null,
+                "mapping": "softplus",
+                "mapping_params": [0, 3],
+                "slope": {
+                    "name": "slope_alpha",
+                    "_dims": ["alpha_covariates"],
+                    "mapping": "identity",
+                    "mapping_params": [0, 1],
+                    "dist_name": "Normal",
+                    "dist_params": [0, 1],
+                    "dims": ["alpha_covariates"],
+                    "type": "Prior"
+                },
+                "intercept": {
+                    "name": "intercept_alpha",
+                    "_dims": null,
+                    "mapping": "identity",
+                    "mapping_params": [0, 1],
+                    "dist_name": "Normal",
+                    "dist_params": [1.0, 1.0],
+                    "dims": null,
+                    "type": "Prior"
+                },
+                "basis_function": {
+                    "basis_column": 0,
+                    "is_fitted": true,
+                    "basis_name": "linear",
+                    "min": -1.8109814743567163,
+                    "max": 1.679505748739388,
+                    "compute_min": true,
+                    "compute_max": true,
+                    "basis_function": "LinearBasisFunction"
+                },
+                "covariate_dims": ["alpha_covariates_0", "alpha_covariates_1"],
+                "one_dimensional": false,
+                "dims": null,
+                "type": "LinearPrior"
+            },
+            "beta": {
+                "name": "beta",
+                "_dims": null,
+                "mapping": "softplus",
+                "mapping_params": [0, 3],
+                "dist_name": "Normal",
+                "dist_params": [1.0, 1.0],
+                "dims": null,
+                "type": "Prior"
+            }
+        },
+        "_name": "y",
+        "draws": 20,
+        "tune": 20,
+        "cores": 1,
+        "chains": 2,
+        "nuts_sampler": "pymc",
+        "init": "auto",
+        "progressbar": false,
+        "inference_method": "mcmc",
+        "vi_iterations": 30000,
+        "vi_draws": 1000,
+        "vi_kwargs": {},
+        "be_maps": {
+            "site": {
+                "s2": 0,
+                "s0": 1,
+                "s1": 2
+            },
+            "sex": {
+                "F": 0,
+                "M": 1
+            }
+        },
+        "idata_path": "hbr_beta/model/y/idata.nc"
+    },
+    "outscaler": {
+        "scaler_type": "id",
+        "adjust_outliers": false,
+        "min": 0.1877073261712028,
+        "max": 0.8583087643809546
+    }
+}

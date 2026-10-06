@@ -100,6 +100,11 @@ test/resources/*
 !test/resources/pretrained_hbr/
 !test/resources/pretrained_hbr/**
 
+# Golden-value fixtures for the regression tests in test/test_golden/.
+!test/resources/golden/
+!test/resources/golden/**
+test/resources/golden/**/__pycache__/
+
 test/output/*
 !test/output/.gitkeep
 
@@ -112,3 +117,8 @@ cspell.json
 examples/sandbox_2.ipynb
 doc/pages/tutorials/sandbox_2_files/*
 doc/pages/tutorials/sandbox_2.rst
+
+# Benchmark outputs (benchmarks/README.md)
+benchmarks/data/
+benchmarks/results/
+benchmarks/models/

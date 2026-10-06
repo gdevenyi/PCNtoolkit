@@ -1,0 +1,103 @@
+{
+    "model": {
+        "name": "y",
+        "type": "HBR",
+        "is_fitted": true,
+        "is_from_dict": false,
+        "transfered": false,
+        "ptk_version": "1.4.0",
+        "likelihood": {
+            "name": "ZINB",
+            "mu": {
+                "name": "mu",
+                "_dims": null,
+                "mapping": "softplus",
+                "mapping_params": [0, 3],
+                "slope": {
+                    "name": "slope_mu",
+                    "_dims": ["mu_covariates"],
+                    "mapping": "identity",
+                    "mapping_params": [0, 1],
+                    "dist_name": "Normal",
+                    "dist_params": [0, 1],
+                    "dims": ["mu_covariates"],
+                    "type": "Prior"
+                },
+                "intercept": {
+                    "name": "intercept_mu",
+                    "_dims": null,
+                    "mapping": "identity",
+                    "mapping_params": [0, 1],
+                    "dist_name": "Normal",
+                    "dist_params": [1.0, 1.0],
+                    "dims": null,
+                    "type": "Prior"
+                },
+                "basis_function": {
+                    "basis_column": 0,
+                    "is_fitted": true,
+                    "basis_name": "linear",
+                    "min": -1.634997293714154,
+                    "max": 1.750259278952893,
+                    "compute_min": true,
+                    "compute_max": true,
+                    "basis_function": "LinearBasisFunction"
+                },
+                "covariate_dims": ["mu_covariates_0", "mu_covariates_1"],
+                "one_dimensional": false,
+                "dims": null,
+                "type": "LinearPrior"
+            },
+            "alpha": {
+                "name": "alpha",
+                "_dims": null,
+                "mapping": "softplus",
+                "mapping_params": [0, 3],
+                "dist_name": "Normal",
+                "dist_params": [1.0, 1.0],
+                "dims": null,
+                "type": "Prior"
+            },
+            "psi": {
+                "name": "psi",
+                "_dims": null,
+                "mapping": "sigmoid",
+                "mapping_params": [0, 1],
+                "dist_name": "Normal",
+                "dist_params": [1.0, 1.0],
+                "dims": null,
+                "type": "Prior"
+            }
+        },
+        "_name": "y",
+        "draws": 20,
+        "tune": 20,
+        "cores": 1,
+        "chains": 2,
+        "nuts_sampler": "pymc",
+        "init": "auto",
+        "progressbar": false,
+        "inference_method": "mcmc",
+        "vi_iterations": 30000,
+        "vi_draws": 1000,
+        "vi_kwargs": {},
+        "be_maps": {
+            "site": {
+                "s2": 0,
+                "s1": 1,
+                "s0": 2
+            },
+            "sex": {
+                "F": 0,
+                "M": 1
+            }
+        },
+        "idata_path": "hbr_ZINB/model/y/idata.nc"
+    },
+    "outscaler": {
+        "scaler_type": "id",
+        "adjust_outliers": false,
+        "min": 0.0,
+        "max": 20.0
+    }
+}
