@@ -170,7 +170,8 @@ class Runner:
             unique_id = unique_id + data.name + "_"
         milliseconds = time.time() * 1000 % 1000
         milliseconds = f"{milliseconds:03f}"
-        self.task_id = unique_id + "_" + time.strftime("%Y-%m-%d_%H:%M:%S") + "_" + milliseconds
+        # No ":" in the time: task_id is a folder name, and Windows does not allow ":".
+        self.task_id = unique_id + "_" + time.strftime("%Y-%m-%d_%H-%M-%S") + "_" + milliseconds
         Output.print(Messages.TASK_ID_CREATED, task_id=self.task_id)
 
     def create_temp_and_log_dir(self):
