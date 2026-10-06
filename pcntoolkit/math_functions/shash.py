@@ -52,13 +52,18 @@ from pytensor.tensor.random.op import RandomVariable  # type: ignore
 # Constant that controls the accuracy of the finite difference approximation of dkv/dp
 KV_GRADIENT_DP = 1e-8
 
+
 # Basic shash operations
-def S(x: NDArray[np.float64], e: NDArray[np.float64], d: NDArray[np.float64]) -> NDArray[np.float64]:
+def S(
+    x: NDArray[np.float64], e: NDArray[np.float64], d: NDArray[np.float64]
+) -> NDArray[np.float64]:
     """Sinh arcsinh transformation."""
     return np.sinh(np.arcsinh(x) * d - e)
 
 
-def S_inv(x: NDArray[np.float64], e: NDArray[np.float64], d: NDArray[np.float64]) -> NDArray[np.float64]:
+def S_inv(
+    x: NDArray[np.float64], e: NDArray[np.float64], d: NDArray[np.float64]
+) -> NDArray[np.float64]:
     """Inverse sinh arcsinh transformation."""
     return np.sinh((np.arcsinh(x) + e) / d)
 
@@ -190,7 +195,9 @@ def P(q: Union[float, ArrayLike]) -> Union[float, NDArray[np.float64]]:
     return expand(_elementwise(_P, values)[0])
 
 
-def m(epsilon: NDArray[np.float64], delta: NDArray[np.float64], r: int) -> NDArray[np.float64]:
+def m(
+    epsilon: NDArray[np.float64], delta: NDArray[np.float64], r: int
+) -> NDArray[np.float64]:
     """The r'th uncentered moment as given in Jones et al."""
     frac1 = 1 / np.power(2, r)
     acc = 0
@@ -290,7 +297,9 @@ class SHASHrv(RandomVariable):
         delta: float,
         size: Optional[Union[int, Tuple[int, ...]]] = None,
     ) -> NDArray[np.float64]:
-        return np.sinh((np.arcsinh(rng.normal(loc=0, scale=1, size=size)) + epsilon) / delta)
+        return np.sinh(
+            (np.arcsinh(rng.normal(loc=0, scale=1, size=size)) + epsilon) / delta
+        )
 
 
 shash = SHASHrv()
@@ -339,7 +348,9 @@ class SHASH(Continuous):
         this_S = S(value, epsilon, delta)
         this_S_sqr = np.square(this_S)
         this_C_sqr = 1 + this_S_sqr
-        frac2 = np.log(delta) + np.log(this_C_sqr) / 2 - np.log(1 + np.square(value)) / 2
+        frac2 = (
+            np.log(delta) + np.log(this_C_sqr) / 2 - np.log(1 + np.square(value)) / 2
+        )
         exp = -this_S_sqr / 2
         return CONST2 + frac2 + exp
 
@@ -396,7 +407,11 @@ class SHASHo(Continuous):
         this_S = S(remapped_value, epsilon, delta)
         this_S_sqr = np.square(this_S)
         this_C_sqr = 1 + this_S_sqr
-        frac2 = np.log(delta) + np.log(this_C_sqr) / 2 - np.log(1 + np.square(remapped_value)) / 2
+        frac2 = (
+            np.log(delta)
+            + np.log(this_C_sqr) / 2
+            - np.log(1 + np.square(remapped_value)) / 2
+        )
         exp = -this_S_sqr / 2
         return CONST2 + frac2 + exp - np.log(sigma)
 
@@ -455,7 +470,11 @@ class SHASHo2(Continuous):
         this_S = S(remapped_value, epsilon, delta)
         this_S_sqr = np.square(this_S)
         this_C_sqr = 1 + this_S_sqr
-        frac2 = np.log(delta) + np.log(this_C_sqr) / 2 - np.log(1 + np.square(remapped_value)) / 2
+        frac2 = (
+            np.log(delta)
+            + np.log(this_C_sqr) / 2
+            - np.log(1 + np.square(remapped_value)) / 2
+        )
         exp = -this_S_sqr / 2
         return CONST2 + frac2 + exp - np.log(sigma_d)
 
@@ -478,9 +497,11 @@ class SHASHbRV(RandomVariable):
     ) -> NDArray[np.float64]:
         s = rng.normal(size=size)
 
-
         mean, raw_second = m1m2(epsilon, delta)
-        out = ((np.sinh((np.arcsinh(s) + epsilon) / delta) - mean) / np.sqrt(raw_second - mean**2)) * sigma + mu  # type: ignore
+        out = (
+            (np.sinh((np.arcsinh(s) + epsilon) / delta) - mean)
+            / np.sqrt(raw_second - mean**2)
+        ) * sigma + mu  # type: ignore
         return out
 
 
@@ -518,6 +539,10 @@ class SHASHb(Continuous):
         this_S = S(remapped_value, epsilon, delta)
         this_S_sqr = np.square(this_S)
         this_C_sqr = 1 + this_S_sqr
-        frac2 = np.log(delta) + np.log(this_C_sqr) / 2 - np.log(1 + np.square(remapped_value)) / 2
+        frac2 = (
+            np.log(delta)
+            + np.log(this_C_sqr) / 2
+            - np.log(1 + np.square(remapped_value)) / 2
+        )
         exp = -this_S_sqr / 2
         return CONST2 + frac2 + exp + np.log(var) / 2 - np.log(sigma)
