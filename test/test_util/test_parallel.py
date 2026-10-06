@@ -97,6 +97,14 @@ def test_006_resolveNJobs_should_capAndWarn_when_aboveAllocation(
         assert resolve_n_jobs(6) == 2
 
 
+def test_016_resolveNJobs_should_acceptNumpyInteger_when_given(
+    eight_cpus: None,
+) -> None:
+    import numpy as np
+
+    assert resolve_n_jobs(np.int64(3)) == 3
+
+
 @pytest.mark.parametrize("n_jobs", [0, 1.5, True, "2"])
 def test_007_resolveNJobs_should_raise_when_notNonZeroInteger(n_jobs: object) -> None:
     with pytest.raises(ValueError, match="n_jobs"):
