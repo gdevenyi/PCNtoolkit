@@ -1,4 +1,5 @@
 import json
+import glob
 import os
 import random
 import re
@@ -11,7 +12,7 @@ from typing import Callable, Dict, Literal, Optional
 import cloudpickle as pickle
 
 from pcntoolkit.dataio.fileio import create_incremental_backup
-from pcntoolkit.dataio.norm_data import NormData
+from pcntoolkit.dataio.norm_data import NormData, merge_result_parts, result_parts
 from pcntoolkit.normative_model import NormativeModel
 from pcntoolkit.util.job_observer import JobObserver
 from pcntoolkit.util.output import Errors, Messages, Output, Warnings
@@ -22,6 +23,16 @@ import copy
 
 
 class Runner:
+    """Run NormativeModel tasks in this process or as scheduler jobs (SLURM, Torque).
+
+    On a scheduler, each job writes its results as part files in
+    ``<save_dir>/results/parts/``, so jobs do not read or lock shared files.
+    With ``observe=True`` the Runner merges the parts into the usual result
+    CSV files when the jobs end. With ``observe=False``, the parts are merged
+    when ``NormData.load_results`` reads the results, or by
+    ``pcntoolkit.dataio.norm_data.merge_result_parts(<save_dir>/results)``.
+    """
+
     cross_validate: bool = False
     cv_folds: int = 5
     parallelize: bool = True
@@ -150,6 +161,7 @@ class Runner:
                 self.job_observer = JobObserver(self.active_jobs, self.job_type, self.unique_log_dir, self.task_id)
                 self.job_observer.wait_for_jobs()
                 _, self.finished_jobs, self.failed_jobs = self.check_jobs_status()
+                self.merge_result_parts()
                 if data_sources:
                     for data_source in data_sources:
                         self.load_data(data_source)
@@ -159,6 +171,18 @@ class Runner:
                 return None
         else:
             return self.load_model(into=into)
+
+    def merge_result_parts(self) -> None:
+        """Merge the result part files of the jobs into the result CSV files.
+
+        This covers ``<save_dir>/results`` and, with cross-validation, the
+        results folder of each fold.
+        """
+        result_dirs = [os.path.join(self.save_dir, "results")]
+        folds = os.path.join(glob.escape(self.save_dir), "folds", "fold_*", "results")
+        result_dirs += glob.glob(folds)
+        for result_dir in result_dirs:
+            merge_result_parts(result_dir)
 
     def set_task_id(self, task_name: str, model: NormativeModel, data: NormData):
         unique_id = ""
@@ -989,6 +1013,7 @@ exit $exit_code
             self.job_observer = JobObserver(self.active_jobs, self.job_type, self.unique_log_dir, self.task_id)
             self.job_observer.wait_for_jobs()
             _, self.finished_jobs, self.failed_jobs = self.check_jobs_status()
+            self.merge_result_parts()
 
         self.save()
 
@@ -1014,7 +1039,11 @@ def load_and_execute(args):
             with open(args[1], "rb") as data_path:
                 data = pickle.load(data_path)
             Output.print(Messages.EXECUTING_CALLABLE, attempt=i + 1, total=retries + 1)
-            fn(*data)
+            # Each job writes its own result part files (no shared-file lock or
+            # read); load_results merges them later.
+            job_name = os.path.basename(args[0])[len("python_callable_") : -len(".pkl")]
+            with result_parts(job_name):
+                fn(*data)
             Output.print(Messages.EXECUTION_SUCCESSFUL, attempt=i + 1, total=retries + 1)
             return
         except Exception as e:
