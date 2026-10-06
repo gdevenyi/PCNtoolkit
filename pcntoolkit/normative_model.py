@@ -23,6 +23,7 @@ from pcntoolkit.math_functions.scaler import Scaler
 # pylint: disable=unused-import
 from pcntoolkit.regression_model.blr import BLR  # noqa: F401 # type: ignore
 from pcntoolkit.regression_model.hbr import HBR, clear_param_cache  # noqa: F401 # type: ignore
+from pcntoolkit.regression_model.hbr import clear_compile_cache
 from pcntoolkit.regression_model.regression_model import RegressionModel
 from pcntoolkit.regression_model.test_model import (
     TestModel,  # noqa: F401 # type: ignore
@@ -192,9 +193,13 @@ class NormativeModel:
                 yield (self[responsevar], responsevar, X, be, be_maps, Y)
 
         n = len(self.response_vars)
-        fitted = map_tasks(_fit_one, tasks(), n, self._n_workers())
-        for responsevar, model in zip(self.response_vars, fitted, strict=True):
-            self[responsevar] = model
+        try:
+            fitted = map_tasks(_fit_one, tasks(), n, self._n_workers())
+            for responsevar, model in zip(self.response_vars, fitted, strict=True):
+                self[responsevar] = model
+        finally:
+            # HBR reuses one compiled model for all response variables.
+            clear_compile_cache()
         self.is_fitted = True
         self.postprocess(data)
         if self.savemodel:  # Make sure model is saved
@@ -288,12 +293,18 @@ class NormativeModel:
         new_model.register_batch_effects(transfer_data)
 
         Output.print(Messages.TRANSFERRING_MODELS, n_models=len(respvar_intersection))
-        for responsevar in respvar_intersection:
-            Output.print(Messages.TRANSFERRING_MODEL, model_name=responsevar)
-            resp_transfer_data = transfer_data.sel({"response_vars": responsevar})
-            X, be, be_maps, Y, _ = new_model.extract_data(resp_transfer_data)
-            new_model[responsevar] = self[responsevar].transfer(X, be, be_maps, Y, **kwargs)
-            #new_model[responsevar].be_maps = copy.deepcopy(be_maps)
+        try:
+            for responsevar in respvar_intersection:
+                Output.print(Messages.TRANSFERRING_MODEL, model_name=responsevar)
+                resp_transfer_data = transfer_data.sel({"response_vars": responsevar})
+                X, be, be_maps, Y, _ = new_model.extract_data(resp_transfer_data)
+                new_model[responsevar] = self[responsevar].transfer(
+                    X, be, be_maps, Y, **kwargs
+                )
+                #new_model[responsevar].be_maps = copy.deepcopy(be_maps)
+        finally:
+            # Free the compiled model that HBR kept for reuse.
+            clear_compile_cache()
         new_model.is_fitted = True
         new_model.postprocess(transfer_data)
         if new_model.savemodel:
