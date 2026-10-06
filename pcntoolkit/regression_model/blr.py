@@ -726,10 +726,19 @@ class BLR(RegressionModel):
         # Compute the posterior precision matrix A
         XtLambda_n = X.T * self.lambda_n_vec
         self.A = XtLambda_n.dot(X) + self.Lambda_a
-        invAXt: np.ndarray = linalg.solve(self.A, X.T, check_finite=False)
 
-        # Compute the posterior mean m
-        self.m = (invAXt * self.lambda_n_vec).dot(y)
+        # Compute the posterior mean m = A^-1 X^T Lambda_n y. A is symmetric
+        # positive definite, so one Cholesky solve with one right-hand side
+        # replaces a general solve with N right-hand sides.
+        XtLambda_n_y = XtLambda_n.dot(y)
+        try:
+            cho_A = linalg.cho_factor(self.A, lower=True, check_finite=False)
+            self.m = linalg.cho_solve(cho_A, XtLambda_n_y, check_finite=False)
+        except LinAlgError:
+            # A is not positive definite in floating point (e.g. extreme
+            # hyperparameters during the line search); the LU solve still
+            # gives a usable m, as before.
+            self.m = linalg.solve(self.A, XtLambda_n_y, check_finite=False)
 
     def loglik(
         self,
