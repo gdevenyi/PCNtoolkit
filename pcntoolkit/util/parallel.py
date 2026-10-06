@@ -7,6 +7,7 @@ before.
 
 from __future__ import annotations
 
+import numbers
 import os
 import warnings
 from typing import Any, Callable, Iterable, Iterator
@@ -51,6 +52,30 @@ def allocated_cpus() -> int:
     return max(1, min(limits))
 
 
+def check_n_jobs(n_jobs: int) -> int:
+    """Check that ``n_jobs`` is a non-zero integer and return it as ``int``.
+
+    Parameters
+    ----------
+    n_jobs : int
+        Requested number of worker processes. NumPy integers are accepted.
+
+    Returns
+    -------
+    int
+        The same value as a Python ``int``.
+
+    Raises
+    ------
+    ValueError
+        If ``n_jobs`` is 0, a bool or not an integer.
+    """
+    is_int = isinstance(n_jobs, numbers.Integral) and not isinstance(n_jobs, bool)
+    if not is_int or n_jobs == 0:
+        raise ValueError(f"n_jobs must be a non-zero integer, got {n_jobs!r}.")
+    return int(n_jobs)
+
+
 def resolve_n_jobs(n_jobs: int) -> int:
     """Convert an ``n_jobs`` argument to a number of worker processes.
 
@@ -74,8 +99,7 @@ def resolve_n_jobs(n_jobs: int) -> int:
     ValueError
         If ``n_jobs`` is 0 or not an integer.
     """
-    if isinstance(n_jobs, bool) or not isinstance(n_jobs, int) or n_jobs == 0:
-        raise ValueError(f"n_jobs must be a non-zero integer, got {n_jobs!r}.")
+    n_jobs = check_n_jobs(n_jobs)
     allocated = allocated_cpus()
     if n_jobs < 0:
         return max(1, allocated + 1 + n_jobs)

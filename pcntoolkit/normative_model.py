@@ -30,7 +30,7 @@ from pcntoolkit.regression_model.test_model import (
 from pcntoolkit.util.evaluator import Evaluator
 from pcntoolkit.util.migration import check_forward_compatibility, ptk_version
 from pcntoolkit.util.output import Errors, Messages, Output, Warnings
-from pcntoolkit.util.parallel import map_tasks, resolve_n_jobs
+from pcntoolkit.util.parallel import check_n_jobs, map_tasks, resolve_n_jobs
 from pcntoolkit.util.paths import (
     ensure_dir_exists,
     get_default_save_dir,
@@ -105,9 +105,7 @@ class NormativeModel:
         self.outscaler: str = outscaler
         self.y_transform: Optional[str] = y_transform
         self.name: Optional[str] = name
-        if isinstance(n_jobs, bool) or not isinstance(n_jobs, int) or n_jobs == 0:
-            raise ValueError(f"n_jobs must be a non-zero integer, got {n_jobs!r}.")
-        self.n_jobs: int = n_jobs
+        self.n_jobs: int = check_n_jobs(n_jobs)
         self.response_vars: list[str] = None  # type: ignore
         self.template_regression_model: RegressionModel = template_regression_model
         self.regression_models: dict[str, RegressionModel] = {}
