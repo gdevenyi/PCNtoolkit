@@ -89,13 +89,18 @@ estimated; heteroskedastic BLR fits with many batch levels dominate):
 |------------------|--------|----------|-----------|---------|
 | bench_blr        | 10 s (fcon: 45 s) | ~30 min | hours | many hours |
 | bench_hbr        | 25 s   | ~5 min   | ~1 h      | many hours |
-| bench_components | 10 s   | ~12 min  | ~30 min   | hours   |
+| bench_components | 10 s   | ~2.5 h   | many hours | many hours |
 | check_hbr_accuracy | 15 s | full: 25 s | -       | -       |
 
 A heteroskedastic BLR fit with a batch effect on the noise has one
 hyperparameter per batch level; at 2 x 20 levels and N=5000 one fit takes
 about 2.5 minutes (one response variable). In `bench_blr`, use `--configs plain` or fewer
 levels for a quick run.
+
+The `bench_components` small time (2 h 27 min, one run; the laptop slept
+once, so the true time is less) uses the default
+BLAS threads. OpenBLAS thread overhead makes BLR fits 4-9x slower than with
+`OMP_NUM_THREADS=1` (see #576), so set it for a faster run.
 
 S is the number of posterior samples in the (N, S) arrays that HBR passes to
 the likelihood functions. BLR configs: `plain` (B-spline mean, constant
