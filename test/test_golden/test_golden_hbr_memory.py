@@ -135,7 +135,15 @@ def test_045_chunkedApply_should_notChangeAnyBit_when_chunkSizeChanges(
 
 # (model, call) pairs whose fn output had another memory layout in the old
 # path, so the mean over samples is summed in another order.
-NOT_BIT_IDENTICAL = {("beta", "yhat"), ("ZINB", "yhat")}
+# With #581/#587 merged, SHASH forward/backward return numpy arrays instead of
+# dask arrays, so the old path's mean over samples (dask) is summed in
+# another order than the new one (numpy).
+NOT_BIT_IDENTICAL = {
+    ("beta", "yhat"),
+    ("ZINB", "yhat"),
+    ("SHASHb", "forward"),
+    ("SHASHb", "backward"),
+}
 
 
 @pytest.mark.parametrize("name", MODELS)
