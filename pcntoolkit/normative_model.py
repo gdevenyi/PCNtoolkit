@@ -58,6 +58,12 @@ class NormativeModel:
         Whether to save the results.
     saveplots : bool
         Whether to save the plots.
+    predict_train : bool
+        Whether ``fit`` (and ``transfer``) also predict the data they were fit
+        on: Z-scores, centiles, logp and Yhat of the training data, and their
+        saved results, plots and evaluation. Default ``True``. Set it to
+        ``False`` to save time when you only need the model or the results of
+        other data; ``predict`` can still be called later.
     save_dir : str
         Directory to save the model, results, and plots.
     inscaler : str
@@ -96,8 +102,10 @@ class NormativeModel:
         y_transform: Optional[str] = None,
         name: Optional[str] = None,
         n_jobs: int = 1,
+        predict_train: bool = True,
     ):
         self.savemodel: bool = savemodel
+        self.predict_train: bool = predict_train
         self.evaluate_model: bool = evaluate_model
         self.saveresults: bool = saveresults
         self.saveplots: bool = saveplots
@@ -204,7 +212,8 @@ class NormativeModel:
         self.postprocess(data)
         if self.savemodel:  # Make sure model is saved
             self.save()
-        self.predict(data)  # Make sure everything is evaluated and saved
+        if self.predict_train:
+            self.predict(data)  # Make sure everything is evaluated and saved
 
     def predict(self, data: NormData) -> NormData:
         """Computes Z-scores, centiles, logp, yhat for each observation using fitted regression models."""
@@ -271,6 +280,7 @@ class NormativeModel:
             y_transform=self.y_transform,
             save_dir=self.save_dir,
             n_jobs=self.n_jobs,
+            predict_train=self.predict_train,
         )
         if save_dir is not None:
             new_model.save_dir = save_dir
@@ -309,7 +319,9 @@ class NormativeModel:
         new_model.postprocess(transfer_data)
         if new_model.savemodel:
             new_model.save()
-        new_model.predict(transfer_data)  # Make sure everything is evaluated and saved
+        if new_model.predict_train:
+            # Make sure everything is evaluated and saved
+            new_model.predict(transfer_data)
         return new_model
 
     def transfer_predict(
@@ -344,6 +356,7 @@ class NormativeModel:
             y_transform=self.y_transform,
             save_dir=save_dir,
             n_jobs=self.n_jobs,
+            predict_train=self.predict_train,
         )
 
         new_model.fit(merged_data)
@@ -562,6 +575,8 @@ class NormativeModel:
         saveplots = metadata["saveplots"]
         evaluate_model = metadata["evaluate_model"]
         y_transform = metadata.get("y_transform", None)
+        # Models saved before this option existed always predicted their training data.
+        predict_train = metadata.get("predict_train", True)
         name = metadata["name"]
 
         response_vars = []
@@ -604,6 +619,7 @@ class NormativeModel:
                 outscaler=outscaler,
                 y_transform=y_transform,
                 name=name,
+                predict_train=predict_train,
             )
         else:
             self = into
@@ -1149,6 +1165,7 @@ class NormativeModel:
             "saveresults": self.saveresults,
             "saveplots": self.saveplots,
             "evaluate_model": self.evaluate_model,
+            "predict_train": self.predict_train,
             "template_regression_model": self.template_regression_model.to_dict(),
             "inscalers": {k: v.to_dict() for k, v in self.inscalers.items()},
             "is_fitted": self.is_fitted,
@@ -1210,6 +1227,7 @@ class NormativeModel:
         saveresults = kwargs.get("saveresults", True) in ["True", True]
         saveplots = kwargs.get("saveplots", True) in ["True", True]
         evaluate_model = kwargs.get("evaluate_model", True) in ["True", True]
+        predict_train = kwargs.get("predict_train", True) in ["True", True]
         save_dir = kwargs.get("save_dir", "./saves")
         inscaler = kwargs.get("inscaler", "none")
         outscaler = kwargs.get("outscaler", "none")
@@ -1235,6 +1253,7 @@ class NormativeModel:
             outscaler=outscaler,
             y_transform=y_transform,
             name=name,
+            predict_train=predict_train,
         )
 
     def set_save_dir(self, save_dir: str) -> None:
