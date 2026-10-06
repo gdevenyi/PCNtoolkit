@@ -29,10 +29,10 @@ All distributions support random sampling and log-probability calculations.
 """
 
 # Third-party imports
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache, partial
 from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 
-import dask.array as da
 import numpy as np
 import scipy.special as spp  # type: ignore
 from numpy.random import Generator
@@ -46,6 +46,8 @@ from pytensor.scalar.basic import BinaryScalarOp, upgrade_to_float
 from pytensor.tensor import as_tensor_variable  # type: ignore
 from pytensor.tensor.elemwise import Elemwise
 from pytensor.tensor.random.op import RandomVariable  # type: ignore
+
+from pcntoolkit.util.parallel import allocated_cpus
 
 # pylint: disable=arguments-differ
 
@@ -74,7 +76,7 @@ _UNIQUE_SAMPLE_SIZE = 100_000
 _MAX_UNIQUE_FRACTION = 0.5
 
 
-# Number of elements per dask chunk in _elementwise
+# Number of elements per thread task in _elementwise
 _CHUNK = 1_000_000
 
 
@@ -84,16 +86,27 @@ def _elementwise(
 ) -> Tuple[NDArray[np.float64], ...]:
     """Return ``func(a)`` for each array.
 
-    Large arrays are split into chunks and computed on dask's threads.
+    Large arrays are split into chunks that run on a thread pool with at most
+    ``allocated_cpus()`` threads (the CPUs that SLURM, PBS or OMP_NUM_THREADS
+    allow; 1 inside ``n_jobs`` workers). ``scipy.special.kv`` releases the
+    GIL, so the threads run in parallel. ``func`` is elementwise, so the
+    result is bit-identical to ``func(a)``.
     """
-    if all(a.size <= _CHUNK for a in arrays):
+    n_chunks = sum(-(-a.size // _CHUNK) for a in arrays)
+    n_threads = min(allocated_cpus(), n_chunks)
+    if n_threads <= 1 or all(a.size <= _CHUNK for a in arrays):
         return tuple(func(a) for a in arrays)
-    lazy = [
-        da.map_blocks(func, da.from_array(a.reshape(-1), chunks=_CHUNK), dtype=float)
-        for a in arrays
-    ]
-    results = da.compute(*lazy)
-    return tuple(r.reshape(a.shape) for r, a in zip(results, arrays, strict=True))
+    flats = [np.ascontiguousarray(a).reshape(-1) for a in arrays]
+    outs = [np.empty(f.size, dtype=np.float64) for f in flats]
+
+    def work(task: Tuple[int, int]) -> None:
+        i, lo = task
+        outs[i][lo : lo + _CHUNK] = func(flats[i][lo : lo + _CHUNK])
+
+    tasks = [(i, lo) for i, f in enumerate(flats) for lo in range(0, f.size, _CHUNK)]
+    with ThreadPoolExecutor(max_workers=n_threads) as pool:
+        list(pool.map(work, tasks))
+    return tuple(o.reshape(a.shape) for o, a in zip(outs, arrays, strict=True))
 
 
 def _broadcast_copy(

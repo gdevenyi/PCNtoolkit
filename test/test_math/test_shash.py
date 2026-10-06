@@ -100,3 +100,34 @@ def test_shashHelpers_should_keepScalarTypes_when_givenScalars() -> None:
     mean, raw_second = shash.m1m2(0.3, 1.2)
     assert np.ndim(mean) == 0 and np.ndim(raw_second) == 0
     assert mean == np.sinh(0.3 / 1.2) * _direct_P(1.0 / 1.2)
+
+
+@pytest.mark.parametrize("cpus", [1, 3])
+def test_elementwise_should_useAtMostAllocatedThreads_when_arraysAreLarge(
+    monkeypatch: pytest.MonkeyPatch, cpus: int
+) -> None:
+    """
+    Arrange: distinct (linear) delta that spans several chunks; 1 or 3
+        allocated CPUs; a spy on the thread pool.
+    Act: m1m2 and P.
+    Assert: no pool for 1 CPU, a pool of at most 3 threads otherwise, and
+        results bit-identical to a direct computation.
+    """
+    pools: list[int] = []
+    real_pool = shash.ThreadPoolExecutor
+
+    def spy(max_workers: int):
+        pools.append(max_workers)
+        return real_pool(max_workers=max_workers)
+
+    monkeypatch.setattr(shash, "allocated_cpus", lambda: cpus)
+    monkeypatch.setattr(shash, "ThreadPoolExecutor", spy)
+    delta = _delta("linear")
+    epsilon = np.sin(np.arange(delta.size)).reshape(delta.shape)
+    np.testing.assert_array_equal(shash.P(delta), _direct_P(delta))
+    mean, raw_second = shash.m1m2(epsilon, delta)
+    inv_delta = 1.0 / delta
+    np.testing.assert_array_equal(mean, np.sinh(epsilon / delta) * _direct_P(inv_delta))
+    expected = (np.cosh(2 * (epsilon / delta)) * _direct_P(2.0 * inv_delta) - 1) / 2
+    np.testing.assert_array_equal(raw_second, expected)
+    assert pools == ([] if cpus == 1 else [3, 3])
