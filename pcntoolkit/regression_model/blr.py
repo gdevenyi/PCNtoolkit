@@ -21,12 +21,18 @@ import xarray as xr
 from scipy import linalg, optimize  # type: ignore
 from scipy.linalg import LinAlgError  # type: ignore
 
-from pcntoolkit.math_functions.basis_function import BasisFunction, create_basis_function
+from pcntoolkit.math_functions.basis_function import (
+    BasisFunction,
+    create_basis_function,
+)
 from pcntoolkit.math_functions.warp import *
 from pcntoolkit.regression_model.regression_model import RegressionModel
 from pcntoolkit.util.data_utils import iter_batch_combinations
 from pcntoolkit.util.migration import registry
 from pcntoolkit.util.output import Errors, Messages, Output, Warnings
+
+# Step of the central difference for the warp parameters in loglik_and_grad
+WARP_GRAD_STEP = 1e-5
 
 
 class BLR(RegressionModel):
@@ -109,11 +115,17 @@ class BLR(RegressionModel):
         ard : bool, optional
             Whether to use automatic relevance determination, by default False
         optimizer : str, optional
-            Optimizer to use for the optimization, by default "l-bfgs-b"
+            Optimizer to use for the optimization, by default "l-bfgs-b".
+            "l-bfgs-b" estimates the gradient with finite differences of step
+            ``l_bfgs_b_epsilon``. "l-bfgs-b-grad" uses the analytic gradient
+            (finite differences only for the warp parameters). It is faster
+            and finds the optimum more accurately, so its results can differ
+            from those of "l-bfgs-b".
         l_bfgs_b_l : float, optional
             L-BFGS-B parameter, by default 0.1
         l_bfgs_b_epsilon : float, optional
-            L-BFGS-B parameter, by default 0.1
+            Finite-difference step of the "l-bfgs-b" optimizer, by default
+            0.1. Not used by "l-bfgs-b-grad".
         l_bfgs_b_norm : str, optional
             L-BFGS-B parameter, by default "l2"
         hyp0 : np.ndarray, optional
@@ -254,6 +266,27 @@ class BLR(RegressionModel):
                         args=(*args, self.l_bfgs_b_l, self.l_bfgs_b_norm),
                         approx_grad=True,
                         epsilon=self.l_bfgs_b_epsilon,
+                    )
+            case "l-bfgs-b-grad":
+                all_hyp_i = [hyp0]
+                penalty = (*args, self.l_bfgs_b_l, self.l_bfgs_b_norm)
+                try:
+                    out = optimize.fmin_l_bfgs_b(
+                        func=self.penalized_loglik_and_grad,
+                        x0=hyp0,
+                        args=penalty,
+                        callback=all_hyp_i.append,
+                    )
+                except np.linalg.LinAlgError as e:
+                    Output.print(
+                        Messages.BLR_RESTARTING_ESTIMATION_AT_HYP,
+                        hyp=all_hyp_i[-1],
+                        e=e,
+                    )
+                    out = optimize.fmin_l_bfgs_b(
+                        func=self.penalized_loglik_and_grad,
+                        x0=all_hyp_i[-1],
+                        args=penalty,
                     )
             case _:
                 raise ValueError(Output.error(Errors.ERROR_UNKNOWN_CLASS, class_name=self.optimizer))
@@ -766,6 +799,130 @@ class BLR(RegressionModel):
             return self.loglik(hyp, X, y, var_X) + regularizer_strength * np.sqrt(np.sum(np.square(hyp)))
         else:
             raise ValueError(Output.error(Errors.ERROR_BLR_PENALTY_NOT_RECOGNIZED, penalty=norm))
+
+    def loglik_and_grad(
+        self,
+        hyp: np.ndarray,
+        X: np.ndarray,
+        y: np.ndarray,
+        var_X: Optional[np.ndarray] = None,
+    ) -> tuple[float, np.ndarray]:
+        """
+        Compute the negative log likelihood and its gradient.
+
+        The gradient is analytic for the noise and prior hyperparameters, for
+        all model types (constant or heteroskedastic noise, ARD, warp). For
+        the warp parameters it uses central differences of step
+        ``WARP_GRAD_STEP``.
+
+        With residuals ``r = y - X m``, noise precisions ``lambda_i`` and
+        ``h_i = x_i^T A^-1 x_i``, the derivatives of ``nlZ`` are
+        ``d nlZ / d log(lambda_i) = (lambda_i (r_i^2 + h_i) - 1) / 2`` and
+        ``d nlZ / d log(alpha_j) = (alpha_j (m_j^2 + (A^-1)_jj) - 1) / 2``
+        (summed over j if one alpha is shared). The chain rule then gives the
+        derivatives for the hyperparameters of ``lambda``.
+
+        Parameters
+        ----------
+        hyp : np.ndarray
+            Hyperparameter vector.
+        X : np.ndarray
+            Covariates.
+        y : np.ndarray
+            Responses.
+        var_X : np.ndarray
+            Variance of covariates.
+
+        Returns
+        -------
+        tuple[float, np.ndarray]
+            Negative log likelihood and its gradient with respect to ``hyp``.
+        """
+        grad = np.zeros(hyp.shape)
+        n_noise = var_X.shape[1] if self.models_variance else 1  # type: ignore
+        n_gamma = self.n_gamma if self.warp else 0
+        # Warp parameters first: the last loglik call must leave the posterior at hyp.
+        for k in range(n_noise, n_noise + n_gamma):
+            step = np.zeros(hyp.shape)
+            step[k] = WARP_GRAD_STEP
+            upper = self.loglik(hyp + step, X, y, var_X)
+            lower = self.loglik(hyp - step, X, y, var_X)
+            grad[k] = (upper - lower) / (2 * WARP_GRAD_STEP)
+
+        nlZ = self.loglik(hyp, X, y, var_X)
+        if nlZ == np.finfo(np.float64).max:
+            return nlZ, grad
+        alpha, _, gamma = self.parse_hyps(hyp, X, var_X)
+        if self.warp:
+            y = self.warp.f(y, gamma)
+        lambda_n = self.lambda_n_vec
+        residual = y - X.dot(self.m)
+        cho_A = (linalg.cholesky(self.A, lower=True), True)
+        invA = linalg.cho_solve(cho_A, np.eye(self.D))
+        h = np.einsum("ij,ij->i", X.dot(invA), X)
+        dnlZ_dloglambda = 0.5 * (lambda_n * (residual**2 + h) - 1)
+        if self.models_variance:
+            grad[:n_noise] = var_X.T.dot(dnlZ_dloglambda)  # type: ignore
+        else:
+            grad[0] = np.sum(dnlZ_dloglambda)
+
+        if len(alpha) == self.D:
+            grad[n_noise + n_gamma :] = 0.5 * (alpha * (self.m**2 + np.diag(invA)) - 1)
+        else:
+            mm_trace = self.m.dot(self.m) + np.trace(invA)
+            grad[n_noise + n_gamma :] = 0.5 * (alpha * mm_trace - self.D)
+        return nlZ, grad
+
+    def penalized_loglik_and_grad(
+        self,
+        hyp: np.ndarray,
+        X: np.ndarray,
+        y: np.ndarray,
+        var_X: Optional[np.ndarray] = None,
+        regularizer_strength: float = 0.1,
+        norm: Literal["L1", "L2"] = "L1",
+    ) -> tuple[float, np.ndarray]:
+        """
+        Compute ``penalized_loglik`` and its gradient.
+
+        Parameters
+        ----------
+        hyp : np.ndarray
+            Hyperparameter vector
+        X : np.ndarray
+            Feature matrix
+        y : np.ndarray
+            Target vector
+        var_X : np.ndarray
+            Variance of features
+        regularizer_strength : float, optional
+            Regularization strength, by default 0.1
+        norm : {"L1", "L2"}, optional
+            Type of regularization norm, by default "L1"
+
+        Returns
+        -------
+        tuple[float, np.ndarray]
+            Penalized negative log likelihood and its gradient.
+
+        Raises
+        ------
+        ValueError
+            If norm is not "L1" or "L2"
+        """
+        nlZ, grad = self.loglik_and_grad(hyp, X, y, var_X)
+        if norm.upper() == "L1":
+            penalty = np.sum(np.abs(hyp))
+            dpenalty = np.sign(hyp)
+        elif norm.upper() == "L2":
+            penalty = np.sqrt(np.sum(np.square(hyp)))
+            dpenalty = hyp / penalty if penalty > 0 else np.zeros(hyp.shape)
+        else:
+            raise ValueError(
+                Output.error(Errors.ERROR_BLR_PENALTY_NOT_RECOGNIZED, penalty=norm)
+            )
+        penalized = nlZ + regularizer_strength * penalty
+        return penalized, grad + regularizer_strength * dpenalty
 
     def dloglik(self, hyp: np.ndarray, X: np.ndarray, y: np.ndarray, var_X: np.ndarray) -> np.ndarray:
         """Function to compute derivatives"""
