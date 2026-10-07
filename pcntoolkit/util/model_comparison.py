@@ -1,7 +1,9 @@
-from pcntoolkit.normative_model import NormativeModel
+import math
+
 import arviz as az
 import pymc as pm
-import math
+
+from pcntoolkit.normative_model import NormativeModel
 
 
 def compare_hbr_models(models: dict[str, str]):

@@ -35,14 +35,13 @@ from typing import (
 import numpy as np
 import pandas as pd  # type: ignore
 import xarray as xr
+from filelock import FileLock
 from numpy.typing import ArrayLike
 from pandas.core.groupby.generic import SeriesGroupBy
 from sklearn.model_selection import StratifiedKFold, train_test_split  # type: ignore
 
 # import datavars from xarray
 from xarray.core.types import DataVars
-
-from filelock import FileLock
 
 from pcntoolkit.dataio.fileio import load
 from pcntoolkit.util.output import Messages, Output, Warnings

@@ -16,10 +16,10 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 import xarray as xr
+from scipy.stats.distributions import norm
 
 from pcntoolkit.util.migration import ptk_version
 from pcntoolkit.util.output import Messages, Output
-from scipy.stats.distributions import norm
 
 
 class RegressionModel(ABC):

@@ -56,8 +56,8 @@ from typing import Any, Dict, List, Optional, Type, Union
 import numpy as np
 from numpy.typing import NDArray
 
-from pcntoolkit.util.output import Errors, Output
 from pcntoolkit.util.migration import registry
+from pcntoolkit.util.output import Errors, Output
 
 
 class Scaler(ABC):

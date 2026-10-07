@@ -12,8 +12,8 @@ from pymc import math
 
 from pcntoolkit.math_functions.basis_function import BasisFunction, LinearBasisFunction
 from pcntoolkit.math_functions.factorize import *
-from pcntoolkit.util.output import Errors, Output
 from pcntoolkit.util.migration import registry
+from pcntoolkit.util.output import Errors, Output
 
 PM_DISTMAP = {
     "Normal": pm.Normal,

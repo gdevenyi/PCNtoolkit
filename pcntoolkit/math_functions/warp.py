@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from ast import literal_eval
 from typing import List, Optional, Tuple
 
 import numpy as np

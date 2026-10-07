@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import random
@@ -16,9 +17,6 @@ from pcntoolkit.normative_model import NormativeModel
 from pcntoolkit.util.job_observer import JobObserver
 from pcntoolkit.util.output import Errors, Messages, Output, Warnings
 from pcntoolkit.util.paths import get_default_log_dir, get_default_temp_dir
-from typing import Tuple
-from numpy.typing import ArrayLike
-import copy
 
 
 class Runner:

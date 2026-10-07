@@ -1,19 +1,17 @@
-from math import log
+
+import os
+from typing import Any, Callable
 
 import pytest
-from typing import Any, Callable
 
 from pcntoolkit.dataio.norm_data import NormData
 from pcntoolkit.math_functions.basis_function import (
-    BasisFunction,
     BsplineBasisFunction,
-    LinearBasisFunction,
 )
 from pcntoolkit.normative_model import NormativeModel
 from pcntoolkit.regression_model.blr import BLR
 from test.fixtures.norm_data_fixtures import *
 from test.fixtures.path_fixtures import *
-import os
 
 # Default keyword arguments shared by all BLR tests.
 BLR_BASE_CONFIG: dict[str, Any] = {

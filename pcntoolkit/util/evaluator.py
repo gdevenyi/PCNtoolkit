@@ -5,8 +5,8 @@ import xarray as xr
 from scipy import stats  # type: ignore
 from sklearn.metrics import (
     explained_variance_score,
-    r2_score,
     mean_absolute_percentage_error,
+    r2_score,
 )
 
 from pcntoolkit.dataio.norm_data import NormData

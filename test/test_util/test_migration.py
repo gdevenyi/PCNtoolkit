@@ -13,7 +13,6 @@ from pcntoolkit.util.migration import (
     check_forward_compatibility,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers: Create test migrations
 # ---------------------------------------------------------------------------

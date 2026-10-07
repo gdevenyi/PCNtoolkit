@@ -7,6 +7,7 @@ from pcntoolkit.dataio.norm_data import NormData
 from pcntoolkit.math_functions.basis_function import (
     BsplineBasisFunction,
 )
+from pcntoolkit.normative_model import NormativeModel
 from pcntoolkit.regression_model.blr import (
     BLR,
     create_design_matrix,
@@ -15,7 +16,6 @@ from pcntoolkit.util.migration import registry
 from test.fixtures.blr_model_fixtures import *
 from test.fixtures.norm_data_fixtures import *
 from test.fixtures.path_fixtures import *
-from pcntoolkit.normative_model import NormativeModel
 
 
 @pytest.mark.parametrize("n_iter,tol,ard", [(100, 1e-3, False), (1, 1e-6, True)])

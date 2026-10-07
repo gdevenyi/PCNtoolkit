@@ -3,7 +3,6 @@ import os
 import subprocess
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Dict, List
 
 from IPython.display import clear_output

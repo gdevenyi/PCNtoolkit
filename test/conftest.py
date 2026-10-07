@@ -1,13 +1,11 @@
-import shutil
-from pathlib import Path
+
+import os
+import sys
 
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
-
-import os
-import sys
 
 os.environ["PATH"] = (
     os.path.dirname(sys.executable) + os.pathsep + os.environ.get("PATH", "")

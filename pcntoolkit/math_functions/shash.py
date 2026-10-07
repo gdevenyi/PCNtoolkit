@@ -44,9 +44,8 @@ from pytensor.gradient import grad_not_implemented
 from pytensor.graph.basic import Variable
 from pytensor.scalar.basic import BinaryScalarOp, upgrade_to_float
 from pytensor.tensor import as_tensor_variable  # type: ignore
-from pytensor.tensor.elemwise import Elemwise, scalar_elemwise
+from pytensor.tensor.elemwise import Elemwise
 from pytensor.tensor.random.op import RandomVariable  # type: ignore
-
 
 # pylint: disable=arguments-differ
 

@@ -2,9 +2,10 @@
 Shared helper functions for plotter-related tests
 """
 
-from pcntoolkit.normative_model import NormData
 import numpy as np
 import xarray as xr
+
+from pcntoolkit.normative_model import NormData
 
 
 def create_test_data_with_z(

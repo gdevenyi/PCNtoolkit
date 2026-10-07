@@ -24,7 +24,9 @@ from pcntoolkit.math_functions.scaler import Scaler
 from pcntoolkit.regression_model.blr import BLR  # noqa: F401 # type: ignore
 from pcntoolkit.regression_model.hbr import HBR  # noqa: F401 # type: ignore
 from pcntoolkit.regression_model.regression_model import RegressionModel
-from pcntoolkit.regression_model.test_model import TestModel  # noqa: F401 # type: ignore
+from pcntoolkit.regression_model.test_model import (
+    TestModel,  # noqa: F401 # type: ignore
+)
 from pcntoolkit.util.evaluator import Evaluator
 from pcntoolkit.util.migration import check_forward_compatibility, ptk_version
 from pcntoolkit.util.output import Errors, Messages, Output, Warnings

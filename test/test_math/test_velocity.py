@@ -12,8 +12,8 @@ import xarray as xr
 from pcntoolkit.math_functions.velocity import (
     _resolve_reference_batch_effects,
     compute_thrivelines,
-    thrivelines_to_dataframe,
     propagate_thriveline_z,
+    thrivelines_to_dataframe,
 )
 
 

@@ -11,9 +11,9 @@ from unittest.mock import patch
 import numpy as np
 import xarray as xr
 
+from pcntoolkit.dataio.norm_data import NormData
 from pcntoolkit.util.data_utils import iter_batch_combinations
 from pcntoolkit.util.evaluator import Evaluator
-from pcntoolkit.dataio.norm_data import NormData
 from test.fixtures.evaluator_fixtures import create_test_data
 
 
