@@ -1,4 +1,10 @@
-from pcntoolkit import HBR, SHASHbLikelihood, BsplineBasisFunction, BLR, LinearBasisFunction
+from pcntoolkit import (
+    HBR,
+    SHASHbLikelihood,
+    BsplineBasisFunction,
+    BLR,
+    LinearBasisFunction,
+)
 from pcntoolkit.math_functions.prior import LinearPrior, RandomPrior, Prior
 from pcntoolkit.math_functions.likelihood import get_default_normal_likelihood
 

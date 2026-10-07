@@ -65,7 +65,6 @@ def blr_model_factory() -> Callable:
     )
 
 
-
 @pytest.fixture
 def fitted_blr_model(
     blr_model_factory: Callable,
@@ -87,10 +86,7 @@ def fitted_blr_model(
 
 
 @pytest.fixture
-def norm_blr_model(
-    blr_model_factory: Callable,
-    save_dir_blr
-) -> NormativeModel:
+def norm_blr_model(blr_model_factory: Callable, save_dir_blr) -> NormativeModel:
     # Build a default BLR model via the factory.
     blr_model = blr_model_factory()
     if os.path.exists(save_dir_blr):
@@ -105,9 +101,9 @@ def norm_blr_model(
 
 
 @pytest.fixture
-def fitted_norm_blr_model(norm_blr_model: NormativeModel,
-                          norm_data_from_arrays: NormData
-                          ) -> NormativeModel:
+def fitted_norm_blr_model(
+    norm_blr_model: NormativeModel, norm_data_from_arrays: NormData
+) -> NormativeModel:
     print("removing items")
     if os.path.exists(norm_blr_model.save_dir):
         shutil.rmtree(norm_blr_model.save_dir)
@@ -117,9 +113,7 @@ def fitted_norm_blr_model(norm_blr_model: NormativeModel,
 
 
 @pytest.fixture
-def log1p_transform_norm_blr_model(
-    save_dir_test_model: str
-) -> NormativeModel:
+def log1p_transform_norm_blr_model(save_dir_test_model: str) -> NormativeModel:
     """Create a NormativeModel using BLR with log1p.
 
     Returns
@@ -181,4 +175,3 @@ def log_transform_norm_blr_model(
         name="test_model_log",
         y_transform="log",
     )
-

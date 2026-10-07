@@ -3,6 +3,7 @@ import arviz as az
 import pymc as pm
 import math
 
+
 def compare_hbr_models(models: dict[str, str]):
     """Compares HBR models
 
@@ -16,13 +17,17 @@ def compare_hbr_models(models: dict[str, str]):
     loaded_models: dict[str, NormativeModel] = {}
     for k, v in models.items():
         try:
-
             m = NormativeModel.load(v)
             savemodels, saveplots, saveresults = m.savemodel, m.saveplots, m.saveresults
             m.savemodel = False
             m.saveplots = False
             m.saveresults = False
-            n_samples = int(2*math.exp(sum([math.log(len(uni)) for uni in m.unique_batch_effects.values()])))
+            n_samples = int(
+                2
+                * math.exp(
+                    sum([math.log(len(uni)) for uni in m.unique_batch_effects.values()])
+                )
+            )
             m.predict(m.synthesize(n_samples=n_samples))
             m.savemodel = savemodels
             m.saveplots = saveplots

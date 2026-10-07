@@ -49,7 +49,6 @@ def test_blr_to_and_from_dict_and_args(n_iter, tol, ard):
     assert blr2.l_bfgs_b_norm == "l2"
 
 
-
 @pytest.mark.parametrize("ard", [False, True])
 def test_loaded_model_rebuilds_prior_and_posterior(
     ard: bool,
@@ -203,7 +202,7 @@ def test_fixed_effect_slope_uses_raw_covariate(include_linear: bool) -> None:
 
 
 def test_fixed_effect_slope_follows_basis_column() -> None:
-    """When user specifies BsplineBasisFunction(basis_column=1), the per-site slope is 
+    """When user specifies BsplineBasisFunction(basis_column=1), the per-site slope is
     on covariate 1, unless fixed_effect_slope_indices overrides it."""
     covs, be, be_maps = _slope_design_inputs()
     blr = BLR(
@@ -241,6 +240,6 @@ def test_migration_loads_model_when_slopes_are_off() -> None:
         "fixed_effect_slope_indices": [3],
         "basis_function_mean": {"basis_function": "BsplineBasisFunction"},
     }
-    # Pretend the model was saved with v1.3.0 so that the migration logic for pre-1.4.0 
+    # Pretend the model was saved with v1.3.0 so that the migration logic for pre-1.4.0
     # models is triggered.
     registry.migrate("BLR", d, version="1.3.0")
