@@ -69,9 +69,11 @@ follow the steps below to set your local development environment:
 > **Alternative without conda:** If you use
 > [uv](https://docs.astral.sh/uv/) instead of conda, `make venv` creates a
 > virtual environment in the `.venv` folder with Python 3.12 and installs
-> PCNtoolkit with the `dev` dependencies. After it, activate the
-> environment with `source .venv/bin/activate`. Without Make, run these
-> commands:
+> PCNtoolkit with the `dev` dependencies. If `.venv` exists, `make venv`
+> replaces it. After it, activate the environment with
+> `source .venv/bin/activate` on Linux and macOS, or with
+> `.venv\Scripts\activate` on Windows (in Git Bash, use
+> `source .venv/Scripts/activate`). Without Make, run these commands:
 >
 > ``` bash
 > uv venv --python 3.12 .venv

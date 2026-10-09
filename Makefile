@@ -8,5 +8,5 @@ dev-setup:
 	conda run -n $(ENV_NAME) pip install -e ".[dev]"
 
 venv:
-	uv venv --python $(PYTHON_VERSION) .venv
+	uv venv --clear --python $(PYTHON_VERSION) .venv
 	uv pip install --python .venv -e ".[dev]"
