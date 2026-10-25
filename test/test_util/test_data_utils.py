@@ -38,7 +38,7 @@ def test_dedupe_all_distinct_skips_unique():
     reduced, out = _roundtrip(q, sample_size=1000)
     assert reduced is q
     assert np.array_equal(out, np.sqrt(q))
-    assert len(data_utils._unique_cache) == 0
+    assert data_utils._index_cache is None
 
 
 def test_dedupe_empty_and_small():
@@ -47,40 +47,52 @@ def test_dedupe_empty_and_small():
         assert np.array_equal(out, np.sqrt(q))
 
 
-def test_dedupe_cache_reuses_unique():
-    rng = np.random.default_rng(0)
-    q = rng.uniform(1, 2, (5, 30))[rng.integers(0, 5, 200)]
-    first, _ = dedupe(q, sample_size=1000)
-    second, out = dedupe(q.copy(), sample_size=1000)
-    assert second is first
-    assert np.array_equal(out(np.sqrt(second)), np.sqrt(q))
+def _grouped(rng: np.random.Generator, idx: np.ndarray) -> np.ndarray:
+    return rng.uniform(1, 2, (5, 30))[idx]
 
 
-def test_dedupe_cache_checks_content():
-    # Same shape and same sample, but other values: the cache must not be used.
+def test_dedupe_cache_reuses_positions_for_new_values():
+    # Same grouping, new values (e.g. the next response variable).
     rng = np.random.default_rng(0)
     idx = rng.integers(0, 5, 200)
-    q1 = rng.uniform(1, 2, (5, 30))[idx]
+    dedupe(_grouped(rng, idx), sample_size=1000)
+    cached = data_utils._index_cache
+    q2 = _grouped(rng, idx)
+    reduced, out = _roundtrip(q2, sample_size=1000)
+    assert data_utils._index_cache is cached
+    assert reduced.size == 150
+    assert np.array_equal(out, np.sqrt(q2))
+
+
+def test_dedupe_cache_checks_grouping():
+    # Same shape, but one value leaves its group: the cache must not be used.
+    rng = np.random.default_rng(0)
+    q1 = _grouped(rng, rng.integers(0, 5, 200))
+    dedupe(q1, sample_size=1000)
+    cached = data_utils._index_cache
     q2 = q1.copy()
     q2[1, 1] = 9.0
-    step = q1.size // 1000
-    assert np.array_equal(q1.reshape(-1)[::step], q2.reshape(-1)[::step])
-    dedupe(q1, sample_size=1000)
     reduced, out = _roundtrip(q2, sample_size=1000)
+    assert data_utils._index_cache is not cached
     assert 9.0 in reduced
     assert np.array_equal(out, np.sqrt(q2))
 
 
-def test_dedupe_cache_size():
+def test_dedupe_keeps_signed_zeros_apart():
     rng = np.random.default_rng(0)
-    for i in range(4):
-        q = rng.uniform(1, 2, (5, 30))[rng.integers(0, 5, 200)] + i
-        dedupe(q, sample_size=1000, cache_size=2)
-    assert len(data_utils._unique_cache) == 2
-    dedupe(q, sample_size=1000, cache_size=0)
-    clear_dedupe_cache()
-    dedupe(q, sample_size=1000, cache_size=0)
-    assert len(data_utils._unique_cache) == 0
+    q = rng.choice([0.0, -0.0, 1.0], size=(200, 30))
+    reduced, expand = dedupe(q, sample_size=1000)
+    with np.errstate(divide="ignore"):
+        assert np.array_equal(expand(1 / reduced), 1 / q)
+
+
+def test_dedupe_without_cache():
+    rng = np.random.default_rng(0)
+    q = _grouped(rng, rng.integers(0, 5, 200))
+    reduced, out = _roundtrip(q, sample_size=1000, use_cache=False)
+    assert reduced.size == 150
+    assert np.array_equal(out, np.sqrt(q))
+    assert data_utils._index_cache is None
 
 
 def test_elementwise_chunks():
