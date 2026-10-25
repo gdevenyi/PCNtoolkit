@@ -29,10 +29,9 @@ All distributions support random sampling and log-probability calculations.
 """
 
 # Third-party imports
-from functools import lru_cache, partial
-from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
+from functools import lru_cache
+from typing import Any, List, Optional, Sequence, Tuple, Union
 
-import dask.array as da
 import numpy as np
 import scipy.special as spp  # type: ignore
 from numpy.random import Generator
@@ -46,6 +45,8 @@ from pytensor.scalar.basic import BinaryScalarOp, upgrade_to_float
 from pytensor.tensor import as_tensor_variable  # type: ignore
 from pytensor.tensor.elemwise import Elemwise
 from pytensor.tensor.random.op import RandomVariable  # type: ignore
+
+from pcntoolkit.util.data_utils import dedupe, elementwise
 
 # pylint: disable=arguments-differ
 
@@ -68,94 +69,12 @@ def S_inv(
     return np.sinh((np.arcsinh(x) + e) / d)
 
 
-# _dedupe uses np.unique only on arrays larger than _UNIQUE_SAMPLE_SIZE, and only
-# if at most _MAX_UNIQUE_FRACTION of a sample of that size is distinct.
-_UNIQUE_SAMPLE_SIZE = 100_000
-_MAX_UNIQUE_FRACTION = 0.5
-
-
-# Number of elements per dask chunk in _elementwise
-_CHUNK = 1_000_000
-
-
-def _elementwise(
-    func: Callable[[NDArray[np.float64]], NDArray[np.float64]],
-    *arrays: NDArray[np.float64],
-) -> Tuple[NDArray[np.float64], ...]:
-    """Return ``func(a)`` for each array.
-
-    Large arrays are split into chunks and computed on dask's threads.
-    """
-    if all(a.size <= _CHUNK for a in arrays):
-        return tuple(func(a) for a in arrays)
-    lazy = [
-        da.map_blocks(func, da.from_array(a.reshape(-1), chunks=_CHUNK), dtype=float)
-        for a in arrays
-    ]
-    results = da.compute(*lazy)
-    return tuple(r.reshape(a.shape) for r, a in zip(results, arrays, strict=True))
-
-
-def _broadcast_copy(
-    r: NDArray[np.float64],
-    inner: Callable[[NDArray[np.float64]], NDArray[np.float64]],
-    shape: Tuple[int, ...],
-) -> NDArray[np.float64]:
-    """Expand ``r`` with ``inner``, then copy it along the reduced axis."""
-    return np.broadcast_to(inner(r), shape).copy()
-
-
-def _dedupe(
-    q: ArrayLike,
-) -> Tuple[NDArray[np.float64], Callable[[NDArray[np.float64]], NDArray[np.float64]]]:
-    """Reduce ``q`` to its repeated values, for an elementwise function.
-
-    In SHASH models, epsilon and delta are often the same for all subjects
-    (one value per posterior sample), or take one value per batch effect
-    level. Then most values of ``q`` repeat, and an expensive elementwise
-    function (for example the Bessel function) needs to be computed only once
-    per distinct value. Because the function is elementwise,
-    ``expand(f(reduced))`` is bit-identical to ``f(q)``.
-
-    Parameters
-    ----------
-    q : ArrayLike
-        Input array.
-
-    Returns
-    -------
-    reduced : NDArray[np.float64]
-        The values to compute the function on.
-    expand : Callable[[NDArray[np.float64]], NDArray[np.float64]]
-        Maps the function of ``reduced`` back to the shape of ``q``.
-    """
-    q = np.asarray(q, dtype=np.float64)
-    shape = q.shape
-    if q.size == 0:
-        return q, lambda r: r
-    # 1. q is constant along an axis: keep one slice, then copy it back.
-    for axis in range(q.ndim):
-        first = np.take(q, [0], axis=axis)
-        if shape[axis] > 1 and np.array_equal(q, np.broadcast_to(first, shape)):
-            reduced, inner = _dedupe(first)
-            return reduced, partial(_broadcast_copy, inner=inner, shape=shape)
-    # 2. q has few distinct values: keep each one once. A sample estimates the
-    # number of distinct values, so that all-distinct input (e.g. delta linear
-    # in the covariates) does not pay for a full sort.
-    if q.size > _UNIQUE_SAMPLE_SIZE:
-        sample = q.reshape(-1)[:: q.size // _UNIQUE_SAMPLE_SIZE]
-        if np.unique(sample).size <= _MAX_UNIQUE_FRACTION * sample.size:
-            values, inverse = np.unique(q, return_inverse=True)
-            return values, lambda r: r[inverse.reshape(shape)]
-    return q, lambda r: r
-
-
 def K(
     p: Union[float, ArrayLike], x: float, chunks: Any = None
 ) -> Union[float, NDArray[np.float64]]:
     """Modified Bessel function of the second kind, ``K_p(x)``.
 
-    Computed once per repeated value of ``p`` (see ``_dedupe``).
+    Computed once per repeated value of ``p`` (see ``dedupe``).
 
     Parameters
     ----------
@@ -173,8 +92,8 @@ def K(
     """
     if isinstance(p, float):
         return spp.kv(p, x)
-    values, expand = _dedupe(p)
-    return expand(_elementwise(lambda v: spp.kv(v, x), values)[0])
+    values, expand = dedupe(p)
+    return expand(elementwise(lambda v: spp.kv(v, x), values)[0])
 
 
 def _P(q: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -187,12 +106,12 @@ def _P(q: NDArray[np.float64]) -> NDArray[np.float64]:
 def P(q: Union[float, ArrayLike]) -> Union[float, NDArray[np.float64]]:
     """The P function as given in Jones et al.
 
-    Computed once per repeated value of ``q`` (see ``_dedupe``).
+    Computed once per repeated value of ``q`` (see ``dedupe``).
     """
     if np.ndim(q) == 0:
         return _P(q)  # type: ignore[arg-type]
-    values, expand = _dedupe(q)
-    return expand(_elementwise(_P, values)[0])
+    values, expand = dedupe(q)
+    return expand(elementwise(_P, values)[0])
 
 
 def m(
@@ -215,7 +134,7 @@ def m1m2(
 ) -> Tuple[Any, Any]:
     """Mean and raw second moment of the SHASH distribution (Jones et al.).
 
-    ``P`` is computed once per repeated value of ``delta`` (see ``_dedupe``).
+    ``P`` is computed once per repeated value of ``delta`` (see ``dedupe``).
 
     Parameters
     ----------
@@ -235,10 +154,10 @@ def m1m2(
         inv_delta = 1.0 / delta  # type: ignore[operator]
         p1, p2 = _P(inv_delta), _P(2.0 * inv_delta)
     else:
-        values, expand = _dedupe(delta)
+        values, expand = dedupe(delta)
         inv_delta = 1.0 / values
         two_inv_delta = 2.0 * inv_delta
-        p1, p2 = map(expand, _elementwise(_P, inv_delta, two_inv_delta))
+        p1, p2 = map(expand, elementwise(_P, inv_delta, two_inv_delta))
     eps_delta = epsilon / delta
     sinh_eps_delta = np.sinh(eps_delta)
     cosh_2eps_delta = np.cosh(2 * eps_delta)
