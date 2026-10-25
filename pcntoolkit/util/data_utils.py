@@ -8,6 +8,8 @@ to a shared utility module.
 
 from __future__ import annotations
 
+import threading
+from collections import OrderedDict
 from functools import partial
 from itertools import product
 from typing import Callable, Generator
@@ -90,6 +92,9 @@ def iter_batch_combinations(
 UNIQUE_SAMPLE_SIZE = 100_000
 MAX_UNIQUE_FRACTION = 0.5
 
+# Number of np.unique results that dedupe keeps for the next calls
+UNIQUE_CACHE_SIZE = 4
+
 # Number of elements per dask chunk in elementwise
 CHUNK_SIZE = 1_000_000
 
@@ -131,6 +136,47 @@ def elementwise(
     return tuple(r.reshape(a.shape) for r, a in zip(results, arrays, strict=True))
 
 
+# Maps (shape, hash of the sample) to (distinct values, inverse indices)
+_unique_cache: OrderedDict[
+    tuple[tuple[int, ...], int], tuple[NDArray[np.float64], NDArray[np.unsignedinteger]]
+] = OrderedDict()
+_unique_cache_lock = threading.Lock()
+
+
+def clear_dedupe_cache() -> None:
+    """Remove all ``np.unique`` results that ``dedupe`` keeps."""
+    with _unique_cache_lock:
+        _unique_cache.clear()
+
+
+def _cached_unique(
+    q: NDArray[np.float64], sample: NDArray[np.float64], cache_size: int
+) -> tuple[NDArray[np.float64], NDArray[np.unsignedinteger]]:
+    """Return ``np.unique(q, return_inverse=True)``, from the cache if possible.
+
+    A cached result is used only if it gives back ``q`` exactly, so a stale
+    or wrong entry is never used.
+    """
+    key = (q.shape, hash(sample.tobytes()))
+    with _unique_cache_lock:
+        hit = _unique_cache.get(key)
+    if hit is not None and np.array_equal(hit[0][hit[1]], q):
+        with _unique_cache_lock:
+            if key in _unique_cache:
+                _unique_cache.move_to_end(key)
+        return hit
+    values, inverse = np.unique(q, return_inverse=True)
+    # The smallest index type uses less memory: uint16 for 8 000 values.
+    inverse = inverse.reshape(q.shape).astype(np.min_scalar_type(values.size - 1))
+    if cache_size > 0:
+        with _unique_cache_lock:
+            _unique_cache[key] = (values, inverse)
+            _unique_cache.move_to_end(key)
+            while len(_unique_cache) > cache_size:
+                _unique_cache.popitem(last=False)
+    return values, inverse
+
+
 def _broadcast_copy(
     r: NDArray[np.float64],
     inner: Callable[[NDArray[np.float64]], NDArray[np.float64]],
@@ -144,6 +190,7 @@ def dedupe(
     q: ArrayLike,
     sample_size: int = UNIQUE_SAMPLE_SIZE,
     max_unique_fraction: float = MAX_UNIQUE_FRACTION,
+    cache_size: int = UNIQUE_CACHE_SIZE,
 ) -> tuple[NDArray[np.float64], Callable[[NDArray[np.float64]], NDArray[np.float64]]]:
     """Reduce ``q`` to its repeated values, for an elementwise function.
 
@@ -164,6 +211,14 @@ def dedupe(
     The sample in step 2 makes sure that input where all values are distinct
     does not pay for a full sort.
 
+    The ``np.unique`` result of step 2 is kept for the next calls, because
+    the same array often comes back: for example, ``compute_centiles``
+    computes the SHASH moments of the same delta once per centile. A kept
+    result is used only if it gives back the new array exactly (about 25 ms
+    for 8 million values, compared to about 0.7 s for ``np.unique``). Thus
+    the cache never gives a wrong result, and it is not necessary to clear
+    it when a new model is made. ``clear_dedupe_cache`` frees the memory.
+
     Parameters
     ----------
     q : ArrayLike
@@ -175,6 +230,9 @@ def dedupe(
     max_unique_fraction : float, optional
         Use ``np.unique`` only if at most this fraction of the sample is
         distinct. Default is ``MAX_UNIQUE_FRACTION``.
+    cache_size : int, optional
+        Number of ``np.unique`` results to keep for the next calls. ``0``
+        keeps none. Default is ``UNIQUE_CACHE_SIZE``.
 
     Returns
     -------
@@ -190,11 +248,11 @@ def dedupe(
     for axis in range(q.ndim):
         first = np.take(q, [0], axis=axis)
         if shape[axis] > 1 and np.array_equal(q, np.broadcast_to(first, shape)):
-            reduced, inner = dedupe(first, sample_size, max_unique_fraction)
+            reduced, inner = dedupe(first, sample_size, max_unique_fraction, cache_size)
             return reduced, partial(_broadcast_copy, inner=inner, shape=shape)
     if q.size > sample_size:
         sample = q.reshape(-1)[:: q.size // sample_size]
         if np.unique(sample).size <= max_unique_fraction * sample.size:
-            values, inverse = np.unique(q, return_inverse=True)
-            return values, lambda r: r[inverse.reshape(shape)]
+            values, inverse = _cached_unique(q, sample, cache_size)
+            return values, lambda r: r[inverse]
     return q, lambda r: r
