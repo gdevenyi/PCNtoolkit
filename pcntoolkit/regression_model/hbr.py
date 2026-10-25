@@ -5,6 +5,7 @@ import copy
 import json
 import os
 import threading
+from collections import OrderedDict
 from typing import Any, Dict, Iterator, Optional
 
 import arviz as az  # type: ignore
@@ -22,9 +23,12 @@ from pcntoolkit.regression_model.regression_model import RegressionModel
 from pcntoolkit.util.migration import registry
 from pcntoolkit.util.output import Errors, Output
 
-# One compiled nutpie model, reused while a NormativeModel fits its response
-# variables (see _reuse_nutpie_compile). Keys: "key", "compiled".
-_COMPILE_CACHE: dict = {}
+# Compiled nutpie models, one per model graph (see _compile_key), reused while
+# a NormativeModel fits its response variables. Least recently used first.
+_COMPILE_CACHE: OrderedDict = OrderedDict()
+# Most graphs kept at one time; response variables with more distinct graphs
+# compile again.
+_COMPILE_CACHE_SIZE = 8
 _COMPILE_LOCK = threading.Lock()
 # The model (and its cache key) that the current thread samples, if any.
 _COMPILE_TARGET = threading.local()
@@ -37,7 +41,7 @@ _CACHEABLE_COMPILE_KWARGS = {"var_names": None, "backend": "numba"}
 
 
 def clear_compile_cache() -> None:
-    """Free the compiled nutpie model that HBR keeps for reuse."""
+    """Free the compiled nutpie models that HBR keeps for reuse."""
     with _COMPILE_LOCK:
         _COMPILE_CACHE.clear()
 
@@ -72,8 +76,9 @@ def _caching_compile(model: pm.Model, **kwargs: Any) -> Any:
         return real(model, **kwargs)
     key = target[1]
     with _COMPILE_LOCK:
-        hit = _COMPILE_CACHE.get("key") == key
-        cached = _COMPILE_CACHE.get("compiled") if hit else None
+        cached = _COMPILE_CACHE.get(key)
+        if cached is not None:
+            _COMPILE_CACHE.move_to_end(key)
     if cached is not None:
         names = {var.name for var in cached.shared_var_keys}
         values = {v.name: v.get_value() for v in model.data_vars if v.name in names}
@@ -81,8 +86,9 @@ def _caching_compile(model: pm.Model, **kwargs: Any) -> Any:
             return cached.with_data(**values)
     compiled = real(model, **kwargs)
     with _COMPILE_LOCK:
-        _COMPILE_CACHE.clear()
-        _COMPILE_CACHE.update(key=key, compiled=compiled)
+        _COMPILE_CACHE[key] = compiled
+        while len(_COMPILE_CACHE) > _COMPILE_CACHE_SIZE:
+            _COMPILE_CACHE.popitem(last=False)
     return compiled
 
 

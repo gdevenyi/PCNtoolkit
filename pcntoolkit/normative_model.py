@@ -187,7 +187,7 @@ class NormativeModel:
                 X, be, be_maps, Y, _ = self.extract_data(resp_fit_data)
                 self[responsevar].fit(X, be, be_maps, Y)
         finally:
-            # HBR reuses one compiled model for all response variables.
+            # HBR reuses compiled models across response variables.
             clear_compile_cache()
         self.is_fitted = True
         self.postprocess(data)
@@ -285,7 +285,7 @@ class NormativeModel:
                 )
                 # new_model[responsevar].be_maps = copy.deepcopy(be_maps)
         finally:
-            # Free the compiled model that HBR kept for reuse.
+            # Free the compiled models that HBR kept for reuse.
             clear_compile_cache()
         new_model.is_fitted = True
         new_model.postprocess(transfer_data)
